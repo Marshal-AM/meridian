@@ -143,6 +143,7 @@ export type ReceivableState =
   | "PostedForBid"
   | "Funded"
   | "PartiallySyndicated"
+  | "Overdue"
   | "Repaid"
   | "Defaulted";
 
@@ -154,6 +155,7 @@ export interface BuyerReceivableView {
   faceValue: string;
   currency: string;
   dueDate: string;
+  state?: ReceivableState;
 }
 
 /** Supplier-scoped ISupplierView projection. */
@@ -256,7 +258,9 @@ export type MeridianNotificationEvent =
       contractId: string;
       winningBidCid: string;
     }
-  | { type: "round.paused"; requestId: string; contractId: string };
+  | { type: "round.paused"; requestId: string; contractId: string }
+  | { type: "receivable.repaid"; receivableId: string; contractId: string }
+  | { type: "receivable.overdue"; receivableId: string; contractId: string };
 
 export interface InterfaceProjection {
   contractId: string;

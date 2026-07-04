@@ -1,0 +1,19 @@
+module Meridian.Cash.Holding where
+
+import DA.Optional
+import Splice.Api.Token.MetadataV1
+import Splice.Api.Token.HoldingV1 qualified as HoldingV1
+
+-- | CIP-56 fungible MUSD holding (registry-issued; admin signs mint/settlement).
+template MusdHolding
+  with
+    holding : HoldingV1.HoldingView
+  where
+    signatory holding.instrumentId.admin
+    observer holding.owner
+
+    ensure
+      holding.amount > 0.0 && isNone holding.lock
+
+    interface instance HoldingV1.Holding for MusdHolding where
+      view = holding

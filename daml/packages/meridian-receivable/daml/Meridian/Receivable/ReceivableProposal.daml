@@ -46,6 +46,7 @@ template ReceivableProposal
           syndicationCapTable = []
           fundedPricingHidden = False
           bidHistory = []
+          repaymentProofCid = None
 
     choice Withdraw : ()
       controller supplier

@@ -23,6 +23,9 @@
     "test:phase1:stack": "tsx scripts/phase1-stack-e2e.ts",
     "test:phase2:devnet": "tsx scripts/phase2-devnet-integration.ts",
     "test:phase2:stack": "tsx scripts/phase2-stack-e2e.ts",
+    "test:phase3:devnet": "tsx scripts/phase3-devnet-integration.ts",
+    "test:phase3:stack": "tsx scripts/phase3-stack-e2e.ts",
+    "bootstrap:cash:devnet": "tsx scripts/bootstrap-meridian-cash-devnet.ts",
     "redstone:fetch": "tsx scripts/fetch-redstone-data.ts --save",
     "sync:redstone-fixtures": "tsx scripts/sync-redstone-fixtures.ts",
     "debug:get-updates": "tsx scripts/debug-get-updates.ts",
@@ -33,7 +36,8 @@
     "indexer:financier-a": "pnpm --filter @meridian/indexer serve:financier-a",
     "indexer:financier-b": "pnpm --filter @meridian/indexer serve:financier-b",
     "notifications": "pnpm --filter @meridian/notifications start",
-    "oracle-relay": "pnpm --filter @meridian/oracle-relay start"
+    "oracle-relay": "pnpm --filter @meridian/oracle-relay start",
+    "registry-api": "pnpm --filter @meridian/registry-api start"
   },
   "devDependencies": {
     "@canton-network/wallet-sdk": "1.3.1",

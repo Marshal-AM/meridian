@@ -2,9 +2,12 @@ module Meridian.Receivable.Receivable where
 
 import DA.Time
 import DA.Optional
+import Splice.Api.Token.MetadataV1
+import Splice.Api.Token.AllocationV1 qualified as AllocationV1
 import Meridian.Receivable.Types
 import Meridian.Receivable.AssignmentConsentPolicy
 import Meridian.Receivable.Interfaces
+import Meridian.Receivable.RepaymentProof
 
 -- | Tokenized invoice jointly held by supplier and buyer (§7.1, §8.2).
 template Receivable
@@ -25,6 +28,7 @@ template Receivable
     syndicationCapTable : [Text]
     fundedPricingHidden : Bool
     bidHistory : [Text]
+    repaymentProofCid : Optional (ContractId RepaymentProof)
   where
     signatory supplier, buyer
 
@@ -126,8 +130,51 @@ template Receivable
         assertMsg "Invalid transition to Repaid" (state == Funded || state == PartiallySyndicated)
         create this with state = Repaid
 
+    choice RepayWithProof : (ContractId Receivable, ContractId RepaymentProof)
+      with
+        settlementAllocationCid : ContractId AllocationV1.Allocation
+        expectedAmount : Decimal
+        settlementRef : Text
+      controller buyer, payeeOfRecord.payee, supplier
+      do
+        assertMsg "Invalid transition to Repaid"
+          (state == Funded || state == PartiallySyndicated || state == Overdue)
+        assertMsg "Repayment amount must match face value" (expectedAmount == faceValue)
+        allocationView <- fetch settlementAllocationCid
+        let av = view allocationView
+        let leg = av.allocation.transferLeg
+        assertMsg "Allocation amount mismatch" (leg.amount == faceValue)
+        assertMsg "Payee mismatch" (leg.receiver == payeeOfRecord.payee)
+        assertMsg "Payer must be buyer" (leg.sender == buyer)
+        now <- getTime
+        _ <- exercise settlementAllocationCid AllocationV1.Allocation_ExecuteTransfer with
+          extraArgs = ExtraArgs with meta = emptyMetadata; context = emptyChoiceContext
+        proofCid <- create RepaymentProof with
+          receivableId
+          payer = buyer
+          payee = payeeOfRecord.payee
+          amount = faceValue
+          currency
+          paidAt = now
+          settlementRef
+          supplier
+        repaidCid <- create this with
+          state = Repaid
+          repaymentProofCid = Some proofCid
+        pure (repaidCid, proofCid)
+
+    choice MarkOverdue : ContractId Receivable
+      controller supplier
+      do
+        now <- getTime
+        let dayAfterDue = addRelTime (time dueDate 0 0 0) (days 1)
+        assertMsg "Invalid transition to Overdue" (state == Funded || state == PartiallySyndicated)
+        assertMsg "Not yet past due date" (now >= dayAfterDue)
+        create this with state = Overdue
+
     choice MarkDefaulted : ContractId Receivable
       controller supplier
       do
-        assertMsg "Invalid transition to Defaulted" (state == Funded || state == PartiallySyndicated)
+        assertMsg "Invalid transition to Defaulted"
+          (state == Funded || state == PartiallySyndicated || state == Overdue)
         create this with state = Defaulted

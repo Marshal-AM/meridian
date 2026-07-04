@@ -27,6 +27,12 @@ jobs:
       - name: Vendor RedStone canton-connector
         run: bash infra/scripts/vendor-redstone.sh
 
+      - name: Vendor Splice CIP-56 token-standard
+        run: bash infra/scripts/vendor-splice-token.sh
+
+      - name: Build Splice CIP-56 DARs
+        run: bash infra/scripts/build-splice-dars.sh
+
       - name: Build RedStone DARs
         run: bash infra/scripts/build-redstone-dars.sh
 

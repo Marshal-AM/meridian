@@ -1,7 +1,21 @@
 import { randomUUID } from "node:crypto";
 
 /** Package-name template reference (works after DAR upload). */
-export const RECEIVABLE_PACKAGE = "com-meridian-receivable-v2";
+export const RECEIVABLE_PACKAGE = "com-meridian-receivable-v3";
+export const CASH_PACKAGE = "com-meridian-cash";
+export const SPLICE_ALLOCATION_FACTORY_INTERFACE =
+  "#splice-api-token-allocation-instruction-v1:Splice.Api.Token.AllocationInstructionV1:AllocationFactory";
+
+/** Cash templates within com-meridian-cash. */
+export const CASH = {
+  cashRegistry: `#${CASH_PACKAGE}:Meridian.Cash.Registry:CashRegistry`,
+  musdRules: `#${CASH_PACKAGE}:Meridian.Cash.Registry:MusdRules`,
+  musdHolding: `#${CASH_PACKAGE}:Meridian.Cash.Holding:MusdHolding`,
+} as const;
+
+/** Repayment proof template (receivable v0.2.0). */
+export const REPAYMENT_PROOF =
+  `#${RECEIVABLE_PACKAGE}:Meridian.Receivable.RepaymentProof:RepaymentProof`;
 
 /** Financing templates within com-meridian-receivable-v2. */
 export const FINANCING = {
@@ -86,6 +100,43 @@ export interface SubmitBidArgs {
 export interface AwardBidArgs {
   requestContractId: string;
   winningBidCid: string;
+  settlementAllocationCid: string;
+  expectedAdvance: string;
+  settlementFinancier: string;
+}
+
+export interface CreateAdvanceAllocationArgs {
+  rulesContractId: string;
+  admin: string;
+  executor: string;
+  sender: string;
+  receiver: string;
+  amount: string;
+  requestedAt: string;
+  allocateBefore: string;
+  settleBefore: string;
+  inputHoldingCids: string[];
+}
+
+export interface RepayWithProofArgs {
+  receivableContractId: string;
+  settlementAllocationCid: string;
+  expectedAmount: string;
+  settlementRef: string;
+}
+
+export interface MarkOverdueArgs {
+  receivableContractId: string;
+}
+
+export interface MintHoldingArgs {
+  registryContractId: string;
+  owner: string;
+  amount: string;
+}
+
+export interface BootstrapCashRegistryArgs {
+  admin: string;
 }
 
 export interface ReplaceBidArgs extends SubmitBidArgs {}
@@ -256,7 +307,111 @@ export function buildAwardBidCommand(args: AwardBidArgs): LedgerCommand {
       choice: "AwardBid",
       choiceArgument: {
         winningBidCid: args.winningBidCid,
+        settlementAllocationCid: args.settlementAllocationCid,
+        expectedAdvance: args.expectedAdvance,
+        settlementFinancier: args.settlementFinancier,
       },
+    },
+  };
+}
+
+export function buildCreateCashRegistryCommand(
+  args: BootstrapCashRegistryArgs
+): LedgerCommand {
+  return {
+    CreateCommand: {
+      templateId: CASH.cashRegistry,
+      createArguments: { admin: args.admin },
+    },
+  };
+}
+
+export function buildMintHoldingCommand(args: MintHoldingArgs): LedgerCommand {
+  return {
+    ExerciseCommand: {
+      templateId: CASH.cashRegistry,
+      contractId: args.registryContractId,
+      choice: "MintHolding",
+      choiceArgument: {
+        owner: args.owner,
+        amount: args.amount,
+      },
+    },
+  };
+}
+
+export function buildCreateAllocationFactoryCommand(
+  registryContractId: string
+): LedgerCommand {
+  return {
+    ExerciseCommand: {
+      templateId: CASH.cashRegistry,
+      contractId: registryContractId,
+      choice: "CreateAllocationFactory",
+      choiceArgument: {},
+    },
+  };
+}
+
+export function buildAllocateAdvanceCommand(
+  args: CreateAdvanceAllocationArgs
+): LedgerCommand {
+  return {
+    ExerciseCommand: {
+      // Interface choices must be exercised via the interface ID in Canton v2 HTTP API
+      templateId: SPLICE_ALLOCATION_FACTORY_INTERFACE,
+      contractId: args.rulesContractId,
+      choice: "AllocationFactory_Allocate",
+      choiceArgument: {
+        expectedAdmin: args.admin,
+        allocation: {
+          settlement: {
+            executor: args.executor,
+            settlementRef: { id: "meridian-settlement", cid: null },
+            requestedAt: args.requestedAt,
+            allocateBefore: args.allocateBefore,
+            settleBefore: args.settleBefore,
+            meta: { values: {} },
+          },
+          transferLegId: "advance",
+          transferLeg: {
+            sender: args.sender,
+            receiver: args.receiver,
+            amount: args.amount,
+            instrumentId: { id: "MUSD", admin: args.admin },
+            meta: { values: {} },
+          },
+        },
+        requestedAt: args.requestedAt,
+        inputHoldingCids: args.inputHoldingCids,
+        extraArgs: { meta: { values: {} }, context: { values: {} } },
+      },
+    },
+  };
+}
+
+export function buildRepayWithProofCommand(args: RepayWithProofArgs): LedgerCommand {
+  return {
+    ExerciseCommand: {
+      templateId: TEMPLATE_IDS.receivable,
+      contractId: args.receivableContractId,
+      choice: "RepayWithProof",
+      choiceArgument: {
+        settlementAllocationCid: args.settlementAllocationCid,
+        expectedAmount: args.expectedAmount,
+        settlementRef: args.settlementRef,
+      },
+    },
+  };
+}
+
+export function buildMarkOverdueCommand(args: MarkOverdueArgs): LedgerCommand {
+  return {
+    ExerciseCommand: {
+      templateId: TEMPLATE_IDS.receivable,
+      contractId: args.receivableContractId,
+      choice: "MarkOverdue",
+      choiceArgument: {},
     },
   };
 }

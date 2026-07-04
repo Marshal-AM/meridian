@@ -2,6 +2,8 @@ import { createHash, randomUUID } from "node:crypto";
 import type { RawLedgerEvent, IndexerCheckpoint } from "@meridian/shared-types";
 
 export * from "./commands.js";
+export * from "./cip56.js";
+export * from "./cash-settlement.js";
 
 export interface JsonLedgerClientConfig {
   baseUrl: string;

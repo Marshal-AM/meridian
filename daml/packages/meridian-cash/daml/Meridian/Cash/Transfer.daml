@@ -1,0 +1,71 @@
+module Meridian.Cash.Transfer where
+
+import DA.Assert
+import Splice.Api.Token.MetadataV1
+import Splice.Api.Token.HoldingV1 qualified as HoldingV1
+import Splice.Api.Token.TransferInstructionV1 qualified as TransferV1
+import Meridian.Cash.Holding
+import Meridian.Cash.Utils
+
+transferHoldingView : TransferV1.Transfer -> HoldingV1.HoldingView
+transferHoldingView transfer =
+  HoldingV1.HoldingView with
+    owner = transfer.sender
+    amount = transfer.amount
+    instrumentId = transfer.instrumentId
+    lock = Some HoldingV1.Lock with
+      holders = [transfer.sender, transfer.instrumentId.admin]
+      expiresAt = Some transfer.executeBefore
+      expiresAfter = None
+      context = Some $ "transfer to " <> show transfer.receiver
+    meta = emptyMetadata
+
+-- | Free-of-payment transfer offer (CIP-56 TransferInstruction).
+template MusdTransferOffer
+  with
+    transfer : TransferV1.Transfer
+  where
+    ensure transfer.amount > 0.0 && transfer.requestedAt <= transfer.executeBefore
+
+    signatory transfer.sender, transfer.instrumentId.admin
+    observer transfer.receiver
+
+    interface instance HoldingV1.Holding for MusdTransferOffer where
+      view = transferHoldingView transfer
+
+    interface instance TransferV1.TransferInstruction for MusdTransferOffer where
+      view = TransferV1.TransferInstructionView with
+        originalInstructionCid = None
+        transfer
+        status = TransferV1.TransferPendingReceiverAcceptance
+        meta = emptyMetadata
+
+      transferInstruction_withdrawImpl _self _arg = do
+        tokenCid <- create MusdHolding with
+          holding = (transferHoldingView transfer) with lock = None
+        pure TransferV1.TransferInstructionResult with
+          output = TransferV1.TransferInstructionResult_Failed
+          senderChangeCids = [toInterfaceContractId tokenCid]
+          meta = emptyMetadata
+
+      transferInstruction_rejectImpl _self _arg = do
+        tokenCid <- create MusdHolding with
+          holding = (transferHoldingView transfer) with lock = None
+        pure TransferV1.TransferInstructionResult with
+          output = TransferV1.TransferInstructionResult_Failed
+          senderChangeCids = [toInterfaceContractId tokenCid]
+          meta = emptyMetadata
+
+      transferInstruction_updateImpl _self _arg =
+        fail "TransferInstruction_Update not supported by MusdTransferOffer"
+
+      transferInstruction_acceptImpl _self _arg = do
+        tokenCid <- create MusdHolding with
+          holding = (transferHoldingView transfer) with
+            owner = transfer.receiver
+            lock = None
+        pure TransferV1.TransferInstructionResult with
+          senderChangeCids = []
+          output = TransferV1.TransferInstructionResult_Completed with
+            receiverHoldingCids = [toInterfaceContractId tokenCid]
+          meta = emptyMetadata

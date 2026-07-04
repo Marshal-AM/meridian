@@ -27,6 +27,8 @@ export function SupplierFinancingPage() {
   const [inviteA, setInviteA] = useState(true);
   const [inviteB, setInviteB] = useState(true);
 
+  const [awardMsg, setAwardMsg] = useState("");
+
   const refresh = useCallback(async () => {
     try {
       const [r, roundsRes, p] = await Promise.all([
@@ -89,9 +91,13 @@ export function SupplierFinancingPage() {
     }
   }
 
-  async function handleAward(requestId: string, bidContractId: string) {
+  async function handleAward(requestId: string, bidContractId: string, advanceAmount: string) {
     try {
+      setAwardMsg("");
       await api.awardFinancingBid(requestId, bidContractId);
+      setAwardMsg(
+        `Award confirmed with atomic DvP — MUSD advance (${advanceAmount}) settled to supplier.`
+      );
       await refresh();
     } catch (err) {
       setError(String(err));
@@ -130,6 +136,7 @@ export function SupplierFinancingPage() {
       <h1>Supplier Financing</h1>
       <p>Configure sealed-bid rounds, compare oracle-anchored bids, and award atomically.</p>
       {error && <p className="error">{error}</p>}
+      {awardMsg && <p className="success">{awardMsg}</p>}
 
       <h2>Open Financing Round</h2>
       <form onSubmit={handleOpenRound}>
@@ -251,9 +258,11 @@ export function SupplierFinancingPage() {
                       round.roundState === "StaticReferenceFallback" ? (
                         <button
                           type="button"
-                          onClick={() => handleAward(round.contractId, bid.bidContractId)}
+                          onClick={() =>
+                            handleAward(round.contractId, bid.bidContractId, bid.advanceAmount)
+                          }
                         >
-                          Award
+                          Award (DvP)
                         </button>
                       ) : null}
                     </td>

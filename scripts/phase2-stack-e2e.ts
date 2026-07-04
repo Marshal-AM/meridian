@@ -11,7 +11,6 @@ import { config as loadDotenv } from "dotenv";
 import assert from "node:assert/strict";
 import { DevNetAuthClient } from "@meridian/devnet-auth";
 import {
-  buildAwardBidCommand,
   buildCreateFinancingFactoryCommand,
   buildOpenFinancingRoundCommand,
   buildPostForBidCommand,
@@ -20,6 +19,8 @@ import {
   oracleAnchoredMode,
   TEMPLATE_IDS,
 } from "@meridian/ledger-client";
+import { awardWithDvP, loadCashManifest } from "./cash-devnet-helpers.js";
+import { awardWithDvP, loadCashManifest } from "./cash-devnet-helpers.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, "..");
@@ -415,18 +416,15 @@ async function main(): Promise<void> {
     assert.ok(updatedRequestCid, "updated financing request missing");
     console.log(`   bid cid: ${bidCid}`);
 
-    console.log("8. Supplier awarding bid...");
-    const awardResult = await client.submitAndWaitForTransaction({
-      actAs: [supplier],
-      commands: [
-        buildAwardBidCommand({
-          requestContractId: updatedRequestCid,
-          winningBidCid: bidCid,
-        }),
-      ],
+    console.log("8. Supplier awarding bid with DvP...");
+    const cash = loadCashManifest(ROOT);
+    const { fundedReceivableCid } = await awardWithDvP(client, cash, {
+      supplier,
+      financier: financierA,
+      requestCid: updatedRequestCid,
+      bidCid,
+      advanceAmount: "1500",
     });
-    const fundedReceivableCid = extractCreatedContractId(awardResult);
-    assert.ok(fundedReceivableCid, "funded receivable contract id missing");
     console.log(`   funded receivable cid: ${fundedReceivableCid}`);
 
     console.log("9. Verifying buyer obligations post-fund (no pricing)...");

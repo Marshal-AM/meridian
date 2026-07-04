@@ -1,0 +1,84 @@
+module Meridian.CashFixtures where
+
+import Daml.Script
+import DA.Time
+import Splice.Api.Token.MetadataV1
+import Splice.Api.Token.HoldingV1 qualified as HoldingV1
+import Splice.Api.Token.AllocationV1 qualified as AllocationV1
+import Splice.Api.Token.AllocationInstructionV1 qualified as AllocationInstructionV1
+import Meridian.Cash.Registry
+import Meridian.Cash.Holding
+import Meridian.Cash.Instrument
+import Meridian.Cash.Utils
+
+bootstrapCashRegistry : Party -> Script (ContractId CashRegistry, ContractId MusdRules)
+bootstrapCashRegistry admin = do
+  registryCid <- submit admin do createCmd CashRegistry with admin
+  rulesCid <- submit admin do exerciseCmd registryCid CreateAllocationFactory
+  pure (registryCid, rulesCid)
+
+mintMusd :
+  ContractId CashRegistry -> Party -> Party -> Decimal -> Script (ContractId MusdHolding)
+mintMusd registryCid admin owner amount =
+  submit admin do exerciseCmd registryCid MintHolding with owner; amount
+
+createAdvanceAllocation :
+  ContractId MusdRules
+  -> Party
+  -> Party
+  -> Party
+  -> Party
+  -> Decimal
+  -> Time
+  -> ContractId MusdHolding
+  -> Script (ContractId AllocationV1.Allocation)
+createAdvanceAllocation rulesCid admin executor sender receiver amount now holdingCid = do
+  result : AllocationInstructionV1.AllocationInstructionResult <-
+    submit (actAs sender <> actAs admin) do
+      exerciseCmd
+        (toInterfaceContractId rulesCid : ContractId AllocationInstructionV1.AllocationFactory)
+        AllocationInstructionV1.AllocationFactory_Allocate with
+          expectedAdmin = admin
+          allocation =
+            AllocationV1.AllocationSpecification with
+              settlement =
+                AllocationV1.SettlementInfo with
+                  executor
+                  settlementRef = AllocationV1.Reference with id = "meridian-award"; cid = None
+                  requestedAt = now
+                  allocateBefore = addRelTime now (days 7)
+                  settleBefore = addRelTime now (days 14)
+                  meta = emptyMetadata
+              transferLegId = "advance"
+              transferLeg =
+                AllocationV1.TransferLeg with
+                  sender
+                  receiver
+                  amount
+                  instrumentId = musdId admin
+                  meta = emptyMetadata
+          requestedAt = now
+          inputHoldingCids = [toInterfaceContractId holdingCid]
+          extraArgs = emptyExtraArgs
+  case result.output of
+    AllocationInstructionV1.AllocationInstructionResult_Completed allocationCid ->
+      pure allocationCid
+    _ -> abort "allocation factory did not complete"
+
+createRepaymentAllocation :
+  ContractId MusdRules
+  -> Party
+  -> Party
+  -> Party
+  -> Party
+  -> Decimal
+  -> Time
+  -> ContractId MusdHolding
+  -> Script (ContractId AllocationV1.Allocation)
+createRepaymentAllocation rulesCid admin executor payer payee amount now holdingCid =
+  createAdvanceAllocation rulesCid admin executor payer payee amount now holdingCid
+
+holdingBalance : Party -> Script Decimal
+holdingBalance owner = do
+  holdings <- queryInterface @HoldingV1.Holding owner
+  pure (sum [hv.amount | (_, Some hv) <- holdings])

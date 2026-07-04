@@ -1,0 +1,39 @@
+module Meridian.Cash.Utils where
+
+import DA.Assert
+import Splice.Api.Token.MetadataV1
+import Splice.Api.Token.AllocationV1 qualified as AllocationV1
+
+require : CanAssert m => Text -> Bool -> m ()
+require msg invariant =
+  assertMsg ("The requirement '" <> msg <> "' was not met.") invariant
+
+require'
+  : (Show a, Show b)
+  => (Text, a)
+  -> (Text, a -> b -> Bool)
+  -> (Text, b)
+  -> Update ()
+require' (desc1, v1) (_, predicate) (desc2, v2)
+  | predicate v1 v2 = pure ()
+  | otherwise =
+      fail $
+        desc1 <> ": " <> show v1 <> " — " <> desc2 <> ": " <> show v2
+
+isGreaterOrEqualR : Ord a => (Text, a -> a -> Bool)
+isGreaterOrEqualR = ("is less than", (>=))
+
+requireMatchExpected : (Show a, Eq a) => (Text, a) -> a -> Update ()
+requireMatchExpected (desc, expected) actual =
+  require' (desc, actual) ("is not equal to", (==)) ("expected", expected)
+
+isValidSettlementInfoV1 : AllocationV1.SettlementInfo -> Bool
+isValidSettlementInfoV1 AllocationV1.SettlementInfo{..} =
+  requestedAt <= allocateBefore && allocateBefore <= settleBefore
+
+isValidAllocationSpecificationV1 : AllocationV1.AllocationSpecification -> Bool
+isValidAllocationSpecificationV1 AllocationV1.AllocationSpecification{..} =
+  isValidSettlementInfoV1 settlement && transferLeg.amount > 0.0
+
+emptyExtraArgs : ExtraArgs
+emptyExtraArgs = ExtraArgs with meta = emptyMetadata; context = emptyChoiceContext

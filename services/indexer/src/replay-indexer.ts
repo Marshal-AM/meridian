@@ -14,6 +14,8 @@ import {
   projectConsentPolicy,
   projectProposal,
   projectSupplierView,
+  projectRepaymentProof,
+  isRepaymentProofTemplate,
 } from "./receivable-projector.js";
 import {
   isBidTemplate,
@@ -290,6 +292,11 @@ export class ReplayIndexer {
     if (isBidTemplate(templateId)) {
       const bid = projectBid(contractId, payload);
       this.store.projections.upsertBid(bid, offset);
+    }
+
+    if (isRepaymentProofTemplate(templateId) && this.config.role === "Supplier") {
+      const proof = projectRepaymentProof(contractId, payload);
+      this.store.projections.upsertRepaymentProof(proof, offset);
     }
   }
 

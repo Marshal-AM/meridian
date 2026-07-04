@@ -1,0 +1,80 @@
+-- | Minimal repro for CIP-56 allocation auth (mint → allocate → execute).
+-- Run: bash infra/scripts/test-cash-auth-isolation.sh
+module Meridian.CashAuthIsolationTest where
+
+import Daml.Script
+import DA.Time
+import Splice.Api.Token.MetadataV1
+import Splice.Api.Token.AllocationV1 qualified as AllocationV1
+import Meridian.Financing.FinancingRequest
+import Meridian.CashFixtures
+import Meridian.Cash.Utils (emptyExtraArgs)
+import Meridian.FinancingTest (issuePostedReceivable, openSampleRound, submitOracleBid)
+
+-- Step 1 only: factory allocate must succeed with sender + admin actAs.
+testIsolateAllocate : Script ()
+testIsolateAllocate = script do
+  admin <- allocateParty "Registry"
+  financier <- allocateParty "Financier"
+  supplier <- allocateParty "Supplier"
+  now <- getTime
+
+  (registryCid, rulesCid) <- bootstrapCashRegistry admin
+  finHolding <- mintMusd registryCid admin financier 5000.0
+
+  _ <-
+    createAdvanceAllocation rulesCid admin supplier financier supplier 1500.0 now finHolding
+
+  pure ()
+
+-- Step 2: execute requires allocationControllers = [executor, sender, receiver].
+testIsolateAllocateAndExecute : Script ()
+testIsolateAllocateAndExecute = script do
+  admin <- allocateParty "Registry"
+  financier <- allocateParty "Financier"
+  supplier <- allocateParty "Supplier"
+  now <- getTime
+
+  (registryCid, rulesCid) <- bootstrapCashRegistry admin
+  finHolding <- mintMusd registryCid admin financier 5000.0
+
+  allocCid <-
+    createAdvanceAllocation rulesCid admin supplier financier supplier 1500.0 now finHolding
+
+  submit (actAs supplier <> actAs financier) do
+    exerciseCmd allocCid AllocationV1.Allocation_ExecuteTransfer with extraArgs = emptyExtraArgs
+
+  supplierBal <- holdingBalance supplier
+  assert (supplierBal == 1500.0)
+
+  pure ()
+
+-- Step 3: AwardBid nests ExecuteTransfer — needs modern multi-party submit (not submitMulti).
+testIsolateAwardBidNestedExecute : Script ()
+testIsolateAwardBidNestedExecute = script do
+  admin <- allocateParty "Registry"
+  supplier <- allocateParty "Supplier"
+  buyer <- allocateParty "Buyer"
+  financier <- allocateParty "Financier"
+
+  receivableCid <- issuePostedReceivable supplier buyer
+  reqCid <- openSampleRound receivableCid supplier [financier]
+  (reqCid1, bidCid) <- submitOracleBid reqCid financier 1500.0 0.05
+  now <- getTime
+
+  (registryCid, rulesCid) <- bootstrapCashRegistry admin
+  finHolding <- mintMusd registryCid admin financier 2000.0
+  allocCid <-
+    createAdvanceAllocation rulesCid admin supplier financier supplier 1500.0 now finHolding
+
+  _ <- submit (actAs supplier <> actAs financier) do
+    exerciseCmd reqCid1 AwardBid with
+      winningBidCid = bidCid
+      settlementAllocationCid = allocCid
+      expectedAdvance = 1500.0
+      settlementFinancier = financier
+
+  supplierBal <- holdingBalance supplier
+  assert (supplierBal == 1500.0)
+
+  pure ()

@@ -16,6 +16,21 @@ export function parseNotificationEvents(events: unknown[]): MeridianNotification
   for (const ev of events) {
     if (!ev || typeof ev !== "object") continue;
     const obj = ev as Record<string, unknown>;
+
+    const exercised =
+      (obj.ExercisedEvent as Record<string, unknown> | undefined) ??
+      (obj.exercisedEvent as Record<string, unknown> | undefined);
+    if (exercised) {
+      const choice = str(exercised.choice);
+      if (choice.includes("MarkOverdue")) {
+        out.push({
+          type: "receivable.overdue",
+          receivableId: str(exercised.contractId),
+          contractId: str(exercised.contractId),
+        });
+      }
+    }
+
     const created =
       (obj.CreatedEvent as Record<string, unknown> | undefined) ??
       (obj.createdEvent as Record<string, unknown> | undefined);
@@ -83,6 +98,13 @@ export function parseNotificationEvents(events: unknown[]): MeridianNotification
         requestId: str(args.requestId),
         bidContractId: contractId,
         financier: str(args.financier),
+      });
+    }
+    if (templateId.includes("RepaymentProof")) {
+      out.push({
+        type: "receivable.repaid",
+        receivableId: str(args.receivableId),
+        contractId,
       });
     }
   }

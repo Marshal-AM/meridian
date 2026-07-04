@@ -15,6 +15,7 @@ import Meridian.Financing.FinancingRoundFactory
 import Meridian.Financing.Bid
 import Meridian.Financing.Types
 import Meridian.FinancingFixtures
+import Meridian.CashFixtures
 
 sampleDueDate : Date
 sampleDueDate = date 2026 Dec 31
@@ -74,8 +75,22 @@ submitOracleBid reqCid financier advance discount = do
       mode = OracleAnchored
       ledgerTime = sampleOracleLedgerTime
 
+awardBidWithCash admin supplier financier reqCid bidCid advance = do
+  now <- getTime
+  (registryCid, rulesCid) <- bootstrapCashRegistry admin
+  finHolding <- mintMusd registryCid admin financier (advance + 500.0)
+  allocCid <-
+    createAdvanceAllocation rulesCid admin supplier financier supplier advance now finHolding
+  submit (actAs supplier <> actAs financier) do
+    exerciseCmd reqCid AwardBid with
+      winningBidCid = bidCid
+      settlementAllocationCid = allocCid
+      expectedAdvance = advance
+      settlementFinancier = financier
+
 testFullRoundHappyPath : Script ()
 testFullRoundHappyPath = script do
+  admin <- allocateParty "Registry"
   supplier <- allocateParty "Supplier"
   buyer <- allocateParty "Buyer"
   finA <- allocateParty "FinancierA"
@@ -87,8 +102,7 @@ testFullRoundHappyPath = script do
   (reqCid1, bidA) <- submitOracleBid reqCid finA 1500.0 0.05
   (reqCid2, bidB) <- submitOracleBid reqCid1 finB 1600.0 0.04
 
-  fundedCid <- submit supplier do
-    exerciseCmd reqCid2 AwardBid with winningBidCid = bidB
+  fundedCid <- awardBidWithCash admin supplier finB reqCid2 bidB 1600.0
 
   Some funded <- queryContractId supplier fundedCid
   assert (funded.state == Funded)
@@ -222,6 +236,7 @@ testPauseAndFallbackVisible = script do
 
 testBuyerNoPricingPostFund : Script ()
 testBuyerNoPricingPostFund = script do
+  admin <- allocateParty "Registry"
   supplier <- allocateParty "Supplier"
   buyer <- allocateParty "Buyer"
   finA <- allocateParty "FinancierA"
@@ -229,7 +244,7 @@ testBuyerNoPricingPostFund = script do
   receivableCid <- issuePostedReceivable supplier buyer
   reqCid <- openSampleRound receivableCid supplier [finA]
   (reqCid1, bidA) <- submitOracleBid reqCid finA 1500.0 0.05
-  fundedCid <- submit supplier do exerciseCmd reqCid1 AwardBid with winningBidCid = bidA
+  fundedCid <- awardBidWithCash admin supplier finA reqCid1 bidA 1500.0
 
   buyerViews <- queryInterface @IBuyerView buyer
   assert (length buyerViews == 1)
@@ -241,6 +256,7 @@ testBuyerNoPricingPostFund = script do
 
 testDeadlineBoundary : Script ()
 testDeadlineBoundary = script do
+  admin <- allocateParty "Registry"
   supplier <- allocateParty "Supplier"
   buyer <- allocateParty "Buyer"
   finA <- allocateParty "FinancierA"
@@ -262,8 +278,18 @@ testDeadlineBoundary = script do
       mode = OracleAnchored
       ledgerTime = roundDeadline
 
+  now <- getTime
+  (registryCid, rulesCid) <- bootstrapCashRegistry admin
+  finHolding <- mintMusd registryCid admin finA 3000.0
+  allocCid <-
+    createAdvanceAllocation rulesCid admin supplier finA supplier 1500.0 now finHolding
+
   submitMustFail supplier do
-    exerciseCmd reqCid1 AwardBid with winningBidCid = bidA
+    exerciseCmd reqCid1 AwardBid with
+      winningBidCid = bidA
+      settlementAllocationCid = allocCid
+      expectedAdvance = 1500.0
+      settlementFinancier = finA
 
   pure ()
 
@@ -301,6 +327,7 @@ testReplaceBid = script do
 
 testAwardAtomicity : Script ()
 testAwardAtomicity = script do
+  admin <- allocateParty "Registry"
   supplier <- allocateParty "Supplier"
   buyer <- allocateParty "Buyer"
   finA <- allocateParty "FinancierA"
@@ -311,8 +338,7 @@ testAwardAtomicity = script do
   (reqCid1, _) <- submitOracleBid reqCid finA 1500.0 0.05
   (reqCid2, bidB) <- submitOracleBid reqCid1 finB 1600.0 0.04
 
-  fundedCid <- submit supplier do
-    exerciseCmd reqCid2 AwardBid with winningBidCid = bidB
+  fundedCid <- awardBidWithCash admin supplier finB reqCid2 bidB 1600.0
 
   finABids <- query @Bid finA
   finBBids <- query @Bid finB

@@ -3,6 +3,9 @@ import { api, useNotifications, type SupplierReceivable } from "../api";
 
 export function SupplierPage() {
   const [receivables, setReceivables] = useState<SupplierReceivable[]>([]);
+  const [proofs, setProofs] = useState<
+    Array<{ receivableId: string; amount: string; settlementRef: string }>
+  >([]);
   const [policies, setPolicies] = useState<unknown[]>([]);
   const [error, setError] = useState("");
   const [faceValue, setFaceValue] = useState("5000");
@@ -13,12 +16,14 @@ export function SupplierPage() {
 
   const refresh = useCallback(async () => {
     try {
-      const [r, p] = await Promise.all([
+      const [r, p, portfolio] = await Promise.all([
         api.getSupplierReceivables(),
         api.getConsentPolicies(),
+        api.getSupplierPortfolio().catch(() => ({ receivables: [], repaymentProofs: [] })),
       ]);
       setReceivables(r.receivables);
       setPolicies(p.policies);
+      setProofs(portfolio.repaymentProofs ?? []);
       setError("");
     } catch (e) {
       setError(String(e));
@@ -109,6 +114,13 @@ export function SupplierPage() {
               </li>
             ))}
           </ul>
+        </div>
+      ))}
+
+      <h2>Repayment proofs ({proofs.length})</h2>
+      {proofs.map((p) => (
+        <div key={p.receivableId + p.settlementRef} className="card">
+          <strong>{p.receivableId}</strong> — {p.amount} · ref {p.settlementRef}
         </div>
       ))}
 

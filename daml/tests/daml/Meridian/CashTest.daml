@@ -1,0 +1,85 @@
+module Meridian.CashTest where
+
+import Daml.Script
+import DA.Time
+import Splice.Api.Token.MetadataV1
+import Splice.Api.Token.HoldingV1 qualified as HoldingV1
+import Splice.Api.Token.TransferInstructionV1 qualified as TransferV1
+import Splice.Api.Token.AllocationV1 qualified as AllocationV1
+import Meridian.Cash.Registry
+import Meridian.Cash.Instrument
+import Meridian.Cash.Utils
+import Meridian.CashFixtures
+
+testMintAndTransfer : Script ()
+testMintAndTransfer = script do
+  admin <- allocateParty "Registry"
+  alice <- allocateParty "Alice"
+  bob <- allocateParty "Bob"
+  now <- getTime
+
+  (registryCid, rulesCid) <- bootstrapCashRegistry admin
+  aliceHoldingCid <- mintMusd registryCid admin alice 1000.0
+
+  transferResult <- submit (actAs alice <> actAs admin) do
+    exerciseCmd
+      (toInterfaceContractId rulesCid : ContractId TransferV1.TransferFactory)
+      TransferV1.TransferFactory_Transfer with
+      expectedAdmin = admin
+      transfer =
+        TransferV1.Transfer with
+          sender = alice
+          receiver = bob
+          amount = 250.0
+          instrumentId = musdId admin
+          requestedAt = now
+          executeBefore = addRelTime now (days 1)
+          inputHoldingCids = [toInterfaceContractId aliceHoldingCid]
+          meta = emptyMetadata
+      extraArgs = emptyExtraArgs
+
+  case transferResult.output of
+    TransferV1.TransferInstructionResult_Pending instrCid -> do
+      _ <- submit bob do
+        exerciseCmd instrCid TransferV1.TransferInstruction_Accept with extraArgs = emptyExtraArgs
+      bobBal <- holdingBalance bob
+      assert (bobBal == 250.0)
+    _ -> abort "expected pending transfer"
+
+  pure ()
+
+testAllocationExecute : Script ()
+testAllocationExecute = script do
+  admin <- allocateParty "Registry"
+  financier <- allocateParty "Financier"
+  supplier <- allocateParty "Supplier"
+  now <- getTime
+
+  (registryCid, rulesCid) <- bootstrapCashRegistry admin
+  finHoldingCid <- mintMusd registryCid admin financier 5000.0
+
+  allocCid <-
+    createAdvanceAllocation rulesCid admin supplier financier supplier 1500.0 now finHoldingCid
+
+  submit (actAs supplier <> actAs financier) do
+    exerciseCmd allocCid AllocationV1.Allocation_ExecuteTransfer with extraArgs = emptyExtraArgs
+
+  supplierBal <- holdingBalance supplier
+  assert (supplierBal == 1500.0)
+
+  pure ()
+
+testHoldingViewShape : Script ()
+testHoldingViewShape = script do
+  admin <- allocateParty "Registry"
+  owner <- allocateParty "Owner"
+  (registryCid, _) <- bootstrapCashRegistry admin
+  _ <- mintMusd registryCid admin owner 100.0
+
+  views <- queryInterface @HoldingV1.Holding owner
+  assert (length views == 1)
+  let [(_, Some hv)] = views
+  assert (hv.instrumentId.id == "MUSD")
+  assert (hv.amount == 100.0)
+
+  pure ()

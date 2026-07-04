@@ -73,6 +73,11 @@ button.secondary {
   font-size: 0.875rem;
 }
 
+.success {
+  color: #16a34a;
+  font-size: 0.875rem;
+}
+
 h1 {
   font-size: 1.5rem;
   margin-bottom: 1rem;

@@ -16,6 +16,13 @@ import {
   buildEnterStaticFallbackCommand,
   buildReplaceBidCommand,
   buildExpireRoundCommand,
+  buildMintHoldingCommand,
+  buildRepayWithProofCommand,
+  buildMarkOverdueCommand,
+  buildAdvanceAllocationCommand,
+  extractAllocationCid,
+  CIP56_INTERFACES,
+  CASH,
   oracleAnchoredMode,
   staticReferenceMode,
   inlineConsent,
@@ -28,6 +35,7 @@ import {
   loadPortalParties,
   proxyGet,
 } from "./manifest.js";
+import { loadCashManifest } from "./cash.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, "../../..");
@@ -38,6 +46,7 @@ const PORT = Number(process.env.PORTAL_API_PORT ?? 4000);
 const SUPPLIER_INDEXER = process.env.SUPPLIER_INDEXER_URL ?? "http://127.0.0.1:4011";
 const FINANCIER_INDEXER = process.env.FINANCIER_INDEXER_URL ?? "http://127.0.0.1:4013";
 const ORACLE_RELAY = process.env.ORACLE_RELAY_URL ?? "http://127.0.0.1:4021";
+const REGISTRY_API = process.env.REGISTRY_API_URL ?? "http://127.0.0.1:4022";
 
 async function readBody(req: IncomingMessage): Promise<unknown> {
   const chunks: Buffer[] = [];
@@ -124,6 +133,14 @@ async function handleRequest(
 
     if (req.method === "GET" && url.pathname === "/buyer/obligations") {
       const data = await proxyGet(`${process.env.BUYER_INDEXER_URL ?? "http://127.0.0.1:4012"}/buyer/obligations`);
+      json(res, 200, data);
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/buyer/repayable-obligations") {
+      const data = await proxyGet(
+        `${process.env.BUYER_INDEXER_URL ?? "http://127.0.0.1:4012"}/buyer/repayable-obligations`
+      );
       json(res, 200, data);
       return;
     }
@@ -309,23 +326,182 @@ async function handleRequest(
 
     const awardId = financingRequestId(url.pathname, "award");
     if (req.method === "POST" && awardId) {
-      const body = (await readBody(req)) as { winningBidCid?: string };
+      const body = (await readBody(req)) as {
+        winningBidCid?: string;
+        advanceAmount?: string;
+        financierPartyId?: string;
+      };
       if (!body.winningBidCid) {
         json(res, 400, { error: "winningBidCid required" });
         return;
       }
 
-      const cmd = buildAwardBidCommand({
-        requestContractId: awardId,
-        winningBidCid: body.winningBidCid,
+      const cash = loadCashManifest(ROOT);
+      const financier = body.financierPartyId ?? parties.financierA.partyId;
+      const advance = body.advanceAmount ?? "1500.0";
+      const now = new Date().toISOString();
+      const weekLater = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+      const twoWeeks = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString();
+
+      const holdings = await client.getActiveContractsByInterface(
+        financier,
+        CIP56_INTERFACES.holding
+      );
+      const holdingCids = holdings
+        .filter((h) => h.templateId.includes("MusdHolding"))
+        .map((h) => h.contractId);
+      if (holdingCids.length === 0) {
+        json(res, 400, { error: "financier has no MUSD holdings — bootstrap cash first" });
+        return;
+      }
+
+      const allocResult = await client.submitAndWaitForTransaction({
+        actAs: [financier, cash.registryAdminPartyId],
+        commands: [
+          buildAdvanceAllocationCommand({
+            rulesContractId: cash.rulesContractId,
+            registryAdmin: cash.registryAdminPartyId,
+            executor: parties.supplier.partyId,
+            financier,
+            supplier: parties.supplier.partyId,
+            advanceAmount: advance,
+            inputHoldingCids: holdingCids.slice(0, 1),
+            requestedAt: now,
+            allocateBefore: weekLater,
+            settleBefore: twoWeeks,
+          }),
+        ],
       });
+      const allocationCid = extractAllocationCid(allocResult);
+      if (!allocationCid) {
+        json(res, 500, { error: "allocation creation failed" });
+        return;
+      }
+
       const result = await client.submitAndWaitForTransaction({
-        actAs: [parties.supplier.partyId],
-        commands: [cmd],
+        actAs: [parties.supplier.partyId, financier],
+        commands: [
+          buildAwardBidCommand({
+            requestContractId: awardId,
+            winningBidCid: body.winningBidCid,
+            settlementAllocationCid: allocationCid,
+            expectedAdvance: advance,
+            settlementFinancier: financier,
+          }),
+        ],
       });
 
       json(res, 200, {
         receivableContractId: extractCreatedContractId(result),
+        settlementAllocationCid: allocationCid,
+        transaction: result.transaction?.updateId,
+      });
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/cash/holdings") {
+      const party = new URL(req.url ?? "/", "http://local").searchParams.get("party");
+      if (!party) {
+        json(res, 400, { error: "party query param required" });
+        return;
+      }
+      const data = await proxyGet(`${REGISTRY_API}/registry/holdings/${encodeURIComponent(party)}`);
+      json(res, 200, data);
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/cash/bootstrap") {
+      json(res, 501, { error: "run pnpm bootstrap:cash:devnet from CLI" });
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/supplier/portfolio") {
+      json(res, 200, await proxyGet(`${SUPPLIER_INDEXER}/supplier/portfolio`));
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/financier/positions") {
+      json(res, 200, await proxyGet(`${FINANCIER_INDEXER}/financier/positions`));
+      return;
+    }
+
+    const repayMatch = url.pathname.match(/^\/receivables\/([^/]+)\/repay$/);
+    if (req.method === "POST" && repayMatch) {
+      const receivableCid = decodeURIComponent(repayMatch[1]!);
+      const body = (await readBody(req)) as {
+        faceValue?: string;
+        payeePartyId?: string;
+        settlementRef?: string;
+      };
+      const cash = loadCashManifest(ROOT);
+      const amount = body.faceValue ?? "2000.0";
+      const payee = body.payeePartyId ?? parties.financierA.partyId;
+      const now = new Date().toISOString();
+      const weekLater = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+      const twoWeeks = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString();
+
+      const buyerHoldings = await client.getActiveContractsByInterface(
+        parties.buyer.partyId,
+        CIP56_INTERFACES.holding
+      );
+      const holdingCid = buyerHoldings.find((h) => h.templateId.includes("MusdHolding"))?.contractId;
+      if (!holdingCid) {
+        json(res, 400, { error: "buyer has no MUSD holdings" });
+        return;
+      }
+
+      const allocResult = await client.submitAndWaitForTransaction({
+        actAs: [parties.buyer.partyId, cash.registryAdminPartyId],
+        commands: [
+          buildAdvanceAllocationCommand({
+            rulesContractId: cash.rulesContractId,
+            registryAdmin: cash.registryAdminPartyId,
+            executor: parties.supplier.partyId,
+            financier: parties.buyer.partyId,
+            supplier: payee,
+            advanceAmount: amount,
+            inputHoldingCids: [holdingCid],
+            requestedAt: now,
+            allocateBefore: weekLater,
+            settleBefore: twoWeeks,
+          }),
+        ],
+      });
+      const allocationCid = extractAllocationCid(allocResult);
+      if (!allocationCid) {
+        json(res, 500, { error: "repayment allocation failed" });
+        return;
+      }
+
+      const result = await client.submitAndWaitForTransaction({
+        actAs: [parties.buyer.partyId, payee, parties.supplier.partyId],
+        commands: [
+          buildRepayWithProofCommand({
+            receivableContractId: receivableCid,
+            settlementAllocationCid: allocationCid,
+            expectedAmount: amount,
+            settlementRef: body.settlementRef ?? `repay-${Date.now()}`,
+          }),
+        ],
+      });
+
+      json(res, 200, {
+        receivableContractId: extractCreatedContractId(result),
+        proofContractId: extractCreatedContractId(result, "RepaymentProof"),
+        transaction: result.transaction?.updateId,
+      });
+      return;
+    }
+
+    const overdueMatch = url.pathname.match(/^\/receivables\/([^/]+)\/mark-overdue$/);
+    if (req.method === "POST" && overdueMatch) {
+      const receivableCid = decodeURIComponent(overdueMatch[1]!);
+      const result = await client.submitAndWaitForTransaction({
+        actAs: [parties.supplier.partyId],
+        commands: [buildMarkOverdueCommand({ receivableContractId: receivableCid })],
+      });
+      json(res, 200, {
+        contractId: extractCreatedContractId(result),
         transaction: result.transaction?.updateId,
       });
       return;

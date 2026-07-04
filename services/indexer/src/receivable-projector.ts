@@ -105,6 +105,7 @@ export function projectBuyerView(
     faceValue: str(payload.faceValue),
     currency: str(payload.currency),
     dueDate: str(payload.dueDate),
+    state: str(payload.state) as ReceivableState,
   };
 }
 
@@ -163,4 +164,31 @@ export function templateMatches(templateId: string, expected: string): boolean {
   return templateId === expected || templateId.endsWith(expected.replace(/^#/, ""));
 }
 
-export const RECEIVABLE_TEMPLATES = TEMPLATE_IDS;
+export function projectRepaymentProof(
+  contractId: string,
+  payload: Record<string, unknown>
+): {
+  contractId: string;
+  receivableId: string;
+  payer: string;
+  payee: string;
+  amount: string;
+  currency: string;
+  paidAt: string;
+  settlementRef: string;
+} {
+  return {
+    contractId,
+    receivableId: str(payload.receivableId),
+    payer: str(payload.payer),
+    payee: str(payload.payee),
+    amount: str(payload.amount),
+    currency: str(payload.currency),
+    paidAt: str(payload.paidAt),
+    settlementRef: str(payload.settlementRef),
+  };
+}
+
+export function isRepaymentProofTemplate(templateId: string): boolean {
+  return templateId.includes("RepaymentProof");
+}

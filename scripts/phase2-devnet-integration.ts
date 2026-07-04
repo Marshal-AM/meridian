@@ -7,7 +7,6 @@ import assert from "node:assert/strict";
 import type { DevNetPartiesManifest } from "@meridian/shared-types";
 import { DevNetAuthClient, loadDevNetConfigFromEnv } from "@meridian/devnet-auth";
 import {
-  buildAwardBidCommand,
   buildCoSignAndIssueCommand,
   buildCreateFinancingFactoryCommand,
   buildCreateReceivableProposalCommand,
@@ -23,6 +22,7 @@ import {
   TEMPLATE_IDS,
   type JsonLedgerClient,
 } from "@meridian/ledger-client";
+import { awardWithDvP, loadCashManifest } from "./cash-devnet-helpers.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, "..");
@@ -343,17 +343,14 @@ async function main(): Promise<void> {
     financierA,
     oracle
   );
-  const awardResult = await client.submitAndWaitForTransaction({
-    actAs: [supplier],
-    commands: [
-      buildAwardBidCommand({
-        requestContractId: fundedReqCid,
-        winningBidCid: bidCid,
-      }),
-    ],
+  const cash = loadCashManifest(ROOT);
+  const { fundedReceivableCid } = await awardWithDvP(client, cash, {
+    supplier,
+    financier: financierA,
+    requestCid: fundedReqCid,
+    bidCid,
+    advanceAmount: "1500",
   });
-  const fundedReceivableCid = extractCreatedContractId(awardResult);
-  assert.ok(fundedReceivableCid, "funded receivable contract id missing");
 
   const buyerViews = await client.getActiveContractsByInterface(
     buyer,

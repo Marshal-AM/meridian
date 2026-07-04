@@ -116,6 +116,23 @@ async function handleRequest(
       return;
     }
 
+    if (config.role === "Buyer" && url === "/buyer/repayable-obligations") {
+      json(res, 200, { obligations: store.getBuyerRepayableObligations() });
+      return;
+    }
+
+    if (config.role === "Supplier" && url === "/supplier/portfolio") {
+      json(res, 200, store.getSupplierPortfolio());
+      return;
+    }
+
+    if (config.role === "Financier" && url === "/financier/positions") {
+      json(res, 200, {
+        positions: store.getFinancierPositions(config.actingParty ?? ""),
+      });
+      return;
+    }
+
     if (config.role === "Financier" && url === "/financier/invitations") {
       json(res, 200, { invitations: store.getFinancierInvitations() });
       return;

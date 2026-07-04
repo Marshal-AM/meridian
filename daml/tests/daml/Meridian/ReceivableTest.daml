@@ -14,6 +14,7 @@ import Meridian.Financing.FinancingRequest
 import Meridian.Financing.FinancingRoundFactory
 import Meridian.Financing.Types
 import Meridian.FinancingFixtures
+import Meridian.CashFixtures
 
 sampleLineItems : [LineItem]
 sampleLineItems =
@@ -186,8 +187,19 @@ testStateTransitions = script do
       mode = OracleAnchored
       ledgerTime = sampleOracleLedgerTime
 
-  cid2 <- submit supplier do
-    exerciseCmd reqCid1 AwardBid with winningBidCid = bidCid
+  admin <- allocateParty "Registry"
+  (registryCid, rulesCid) <- bootstrapCashRegistry admin
+  finHolding <- mintMusd registryCid admin financier 3000.0
+  now <- getTime
+  allocCid <-
+    createAdvanceAllocation rulesCid admin supplier financier supplier 1800.0 now finHolding
+
+  cid2 <- submit (actAs supplier <> actAs financier) do
+    exerciseCmd reqCid1 AwardBid with
+      winningBidCid = bidCid
+      settlementAllocationCid = allocCid
+      expectedAdvance = 1800.0
+      settlementFinancier = financier
 
   cid3 <- submit supplier do
     exerciseCmd cid2 MarkPartiallySyndicated

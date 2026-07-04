@@ -1,0 +1,96 @@
+module Meridian.Cash.Allocation where
+
+import DA.Assert
+import Splice.Api.Token.MetadataV1
+import Splice.Api.Token.HoldingV1 qualified as HoldingV1
+import Splice.Api.Token.AllocationV1 qualified as AllocationV1
+import Meridian.Cash.Holding
+import Meridian.Cash.Utils
+
+allocationHoldingView : AllocationV1.AllocationSpecification -> HoldingV1.HoldingView
+allocationHoldingView (AllocationV1.AllocationSpecification with settlement, transferLeg) =
+  HoldingV1.HoldingView with
+    owner = transferLeg.sender
+    amount = transferLeg.amount
+    instrumentId = transferLeg.instrumentId
+    lock = Some HoldingV1.Lock with
+      holders = [transferLeg.sender, transferLeg.instrumentId.admin]
+      expiresAt = Some settlement.settleBefore
+      expiresAfter = None
+      context = Some $ "allocation for settlement of " <> settlement.settlementRef.id
+    meta = emptyMetadata
+
+-- | DvP allocation leg (CIP-56 Allocation) — signatories match Splice TestTokenV1.
+template MusdAllocation
+  with
+    allocation : AllocationV1.AllocationSpecification
+  where
+    signatory allocation.transferLeg.sender, allocation.transferLeg.instrumentId.admin
+    observer allocation.settlement.executor
+    ensure isValidAllocationSpecificationV1 allocation
+
+    interface instance HoldingV1.Holding for MusdAllocation where
+      view = allocationHoldingView allocation
+
+    interface instance AllocationV1.Allocation for MusdAllocation where
+      view = AllocationV1.AllocationView with
+        allocation
+        holdingCids = []
+        meta = emptyMetadata
+
+      allocation_withdrawImpl _self _arg = do
+        tokenCid <- create MusdHolding with
+          holding = (allocationHoldingView allocation) with lock = None
+        pure AllocationV1.Allocation_WithdrawResult with
+          senderHoldingCids = [toInterfaceContractId tokenCid]
+          meta = emptyMetadata
+
+      allocation_cancelImpl _self _arg = do
+        tokenCid <- create MusdHolding with
+          holding = (allocationHoldingView allocation) with lock = None
+        pure AllocationV1.Allocation_CancelResult with
+          senderHoldingCids = [toInterfaceContractId tokenCid]
+          meta = emptyMetadata
+
+      allocation_executeTransferImpl _self _arg = do
+        assertWithinDeadline "Allocation.settlement.settleBefore" allocation.settlement.settleBefore
+        tokenCid <- create MusdHolding with
+          holding = (allocationHoldingView allocation) with
+            owner = allocation.transferLeg.receiver
+            lock = None
+        pure AllocationV1.Allocation_ExecuteTransferResult with
+          senderHoldingCids = []
+          receiverHoldingCids = [toInterfaceContractId tokenCid]
+          meta = emptyMetadata
+
+consumeHoldingAmount :
+  Party
+  -> [ContractId HoldingV1.Holding]
+  -> Decimal
+  -> HoldingV1.InstrumentId
+  -> Update (Optional (ContractId HoldingV1.Holding))
+consumeHoldingAmount sender inputCids amount instrumentId = do
+  inputAmounts <- forA inputCids $ \cid -> do
+    holding <- fetch cid
+    let holdingView = view holding
+    requireMatchExpected ("holding owner", holdingView.owner) sender
+    requireMatchExpected ("holding.instrumentId", holdingView.instrumentId) instrumentId
+    requireMatchExpected ("holding.lock", holdingView.lock) None
+    archive cid
+    pure holdingView.amount
+  let totalAmount = sum inputAmounts
+  require' ("input amount", totalAmount) isGreaterOrEqualR ("transfer.amount", amount)
+  let remainder = totalAmount - amount
+  if remainder == 0.0
+    then pure None
+    else
+      (Some . toInterfaceContractId)
+        <$> create
+          MusdHolding with
+            holding =
+              HoldingV1.HoldingView with
+                owner = sender
+                amount = remainder
+                instrumentId
+                lock = None
+                meta = emptyMetadata

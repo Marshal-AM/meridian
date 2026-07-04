@@ -18,6 +18,7 @@ data ReceivableState
   | PartiallySyndicated
   | Repaid
   | Defaulted
+  | Overdue
   deriving (Eq, Show)
 
 -- | Current payee-of-record on the receivable.
@@ -42,8 +43,12 @@ canTransition : ReceivableState -> ReceivableState -> Bool
 canTransition Issued PostedForBid = True
 canTransition PostedForBid Funded = True
 canTransition Funded PartiallySyndicated = True
+canTransition Funded Overdue = True
 canTransition Funded Repaid = True
 canTransition Funded Defaulted = True
+canTransition PartiallySyndicated Overdue = True
 canTransition PartiallySyndicated Repaid = True
 canTransition PartiallySyndicated Defaulted = True
+canTransition Overdue Repaid = True
+canTransition Overdue Defaulted = True
 canTransition _ _ = False

@@ -16,6 +16,7 @@ export interface BuyerObligation {
   faceValue: string;
   currency: string;
   dueDate: string;
+  state?: string;
 }
 
 export interface ReceivableProposal {
@@ -81,6 +82,23 @@ export const api = {
 
   getBuyerObligations: () =>
     fetchJson<{ obligations: BuyerObligation[] }>("/buyer/obligations"),
+  getBuyerRepayable: () =>
+    fetchJson<{ obligations: BuyerObligation[] }>("/buyer/repayable-obligations"),
+  repayObligation: (
+    receivableContractId: string,
+    body: { faceValue: string; payeePartyId?: string; settlementRef?: string }
+  ) =>
+    fetchJson<{ receivableContractId: string; proofContractId?: string }>(
+      `/receivables/${encodeURIComponent(receivableContractId)}/repay`,
+      { method: "POST", body: JSON.stringify(body) }
+    ),
+  getSupplierPortfolio: () =>
+    fetchJson<{
+      receivables: SupplierReceivable[];
+      repaymentProofs: Array<{ receivableId: string; amount: string; settlementRef: string }>;
+    }>("/supplier/portfolio"),
+  getFinancierPositions: () =>
+    fetchJson<{ positions: SupplierReceivable[] }>("/financier/positions"),
   getBuyerProposals: () =>
     fetchJson<{ proposals: ReceivableProposal[] }>("/buyer/pending-proposals"),
   getSupplierReceivables: () =>
@@ -107,10 +125,18 @@ export const api = {
       method: "POST",
       body: JSON.stringify(body),
     }),
-  awardFinancingBid: (requestContractId: string, winningBidCid: string) =>
-    fetchJson<{ receivableContractId: string }>(
+  awardFinancingBid: (
+    requestContractId: string,
+    winningBidCid: string,
+    advanceAmount?: string,
+    financierPartyId?: string
+  ) =>
+    fetchJson<{ receivableContractId: string; settlementAllocationCid?: string }>(
       `/financing/${encodeURIComponent(requestContractId)}/award`,
-      { method: "POST", body: JSON.stringify({ winningBidCid }) }
+      {
+        method: "POST",
+        body: JSON.stringify({ winningBidCid, advanceAmount, financierPartyId }),
+      }
     ),
   pauseFinancingRound: (requestContractId: string) =>
     fetchJson<{ contractId: string }>(

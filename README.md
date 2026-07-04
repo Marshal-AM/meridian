@@ -150,8 +150,62 @@ docs/                  PRD, phase plan, DevNet access guide
 - **daml-ci.yml** — every push/PR: Daml build, Script tests, SCU breaking-change rejection, TypeScript build/test
 - **devnet-smoke.yml** — auth + ledger-end smoke against Seaport (requires `DEVNET_CLIENT_SECRET` repo secret)
 
+## Phase 3 — CIP-56 Cash Leg
+
+Phase 3 adds **MUSD** (Meridian USD) tokenized cash via Splice CIP-56, atomic DvP on award, buyer repayment with **RepaymentProof**, and overdue transitions.
+
+| Service | Port |
+|---------|------|
+| registry-api | 4022 |
+| portal-api | 4000 |
+| notifications | 4020 |
+| oracle-relay | 4021 |
+
+### Bootstrap cash on DevNet
+
+After uploading DARs (includes `com-meridian-cash` + receivable v0.2.0):
+
+```powershell
+pnpm upload:dar:devnet
+pnpm bootstrap:cash:devnet
+```
+
+Output: `infra/manifests/cash.devnet.json` (MUSD rules CID, registry admin party).
+
+### Phase 3 tests
+
+Daml Script tests (WSL):
+
+```powershell
+make build-daml && make test-daml
+```
+
+Live DevNet integration (requires `DEVNET_CLIENT_SECRET`, fresh oracle snapshot, cash bootstrap):
+
+```powershell
+pnpm redstone:fetch
+pnpm test:phase3:devnet
+```
+
+Full stack E2E (spawns indexers, portal-api, registry-api, notifications):
+
+```powershell
+pnpm build
+pnpm test:phase3:stack
+```
+
+### Registry API
+
+Minimal CIP-56 registry endpoints for wallet SDK discovery:
+
+```powershell
+pnpm registry-api
+# GET http://127.0.0.1:4022/registry/token-metadata/MUSD
+# GET http://127.0.0.1:4022/registry/holdings/{partyId}
+```
+
 ## Next Phase
 
-Phase 1 implements the `Receivable` contract and interface-view privacy architecture.
+Phase 4 extends syndication and multi-party settlement.
 
 See [docs/updatedphaseDocs.md](docs/updatedphaseDocs.md) for the full roadmap.

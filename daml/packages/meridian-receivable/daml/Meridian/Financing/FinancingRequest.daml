@@ -4,6 +4,8 @@ import DA.Time
 import DA.Map as M
 import DA.Action (when)
 import DA.Foldable (forA_)
+import Splice.Api.Token.MetadataV1
+import Splice.Api.Token.AllocationV1 qualified as AllocationV1
 import Meridian.Financing.Types
 import Meridian.Financing.Bid
 import Meridian.Receivable.Receivable
@@ -114,7 +116,10 @@ template FinancingRequest
     choice AwardBid : ContractId Receivable
       with
         winningBidCid : ContractId Bid
-      controller supplier
+        settlementAllocationCid : ContractId AllocationV1.Allocation
+        expectedAdvance : Decimal
+        settlementFinancier : Party
+      controller supplier, settlementFinancier
       do
         assertRoundOpen roundState
         assertBeforeDeadline deadline
@@ -122,6 +127,16 @@ template FinancingRequest
         assertMsg "Bid belongs to this round" (winningBid.requestId == requestId)
         assertMsg "Winning bid not active in this round" (M.member winningBid.financier activeBids)
         assertMsg "Winning bid contract mismatch" (M.lookup winningBid.financier activeBids == Some winningBidCid)
+        assertMsg "Advance mismatch" (winningBid.advanceAmount == expectedAdvance)
+        assertMsg "Settlement financier mismatch" (winningBid.financier == settlementFinancier)
+        allocationIface <- fetch settlementAllocationCid
+        let av = view allocationIface
+        assertMsg "Settlement amount must match advance"
+          (av.allocation.transferLeg.amount == expectedAdvance)
+        assertMsg "Allocation sender must be settlement financier"
+          (av.allocation.transferLeg.sender == settlementFinancier)
+        _ <- exercise settlementAllocationCid AllocationV1.Allocation_ExecuteTransfer with
+          extraArgs = ExtraArgs with meta = emptyMetadata; context = emptyChoiceContext
         _ <- fetch receivableCid
         let historyEntry =
               show winningBid.financier <> ":" <> show winningBid.discountRate <> ":" <> winningBid.reportId

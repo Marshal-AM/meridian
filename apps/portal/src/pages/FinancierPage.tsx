@@ -9,18 +9,29 @@ import {
 export function FinancierPage() {
   const [invitations, setInvitations] = useState<FinancierInvitation[]>([]);
   const [myBids, setMyBids] = useState<BidSummary[]>([]);
+  const [positions, setPositions] = useState<
+    Array<{ receivableId: string; state: string; faceValue: string }>
+  >([]);
   const [error, setError] = useState("");
   const [advanceByRound, setAdvanceByRound] = useState<Record<string, string>>({});
   const [discountByRound, setDiscountByRound] = useState<Record<string, string>>({});
 
   const refresh = useCallback(async () => {
     try {
-      const [inv, bids] = await Promise.all([
+      const [inv, bids, pos] = await Promise.all([
         api.getFinancierInvitations(),
         api.getFinancierMyBids(),
+        api.getFinancierPositions().catch(() => ({ positions: [] })),
       ]);
       setInvitations(inv.invitations);
       setMyBids(bids.bids);
+      setPositions(
+        (pos.positions ?? []).map((p) => ({
+          receivableId: p.receivableId,
+          state: p.state,
+          faceValue: p.faceValue,
+        }))
+      );
       setError("");
     } catch (e) {
       setError(String(e));
@@ -145,6 +156,30 @@ export function FinancierPage() {
                 <td>{bid.mode}</td>
                 <td>{bid.reportId.slice(0, 16)}…</td>
                 <td>{bid.ledgerTime}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+
+      <h2>Funded positions ({positions.length})</h2>
+      {positions.length === 0 ? (
+        <p>No funded positions yet.</p>
+      ) : (
+        <table>
+          <thead>
+            <tr>
+              <th>Receivable</th>
+              <th>Face value</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {positions.map((p) => (
+              <tr key={p.receivableId}>
+                <td>{p.receivableId}</td>
+                <td>{p.faceValue}</td>
+                <td>{p.state}</td>
               </tr>
             ))}
           </tbody>

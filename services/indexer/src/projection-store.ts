@@ -53,6 +53,13 @@ export class ProjectionStore {
         archived INTEGER NOT NULL DEFAULT 0
       );
       CREATE INDEX IF NOT EXISTS idx_bids_request_id ON bids(request_id);
+      CREATE TABLE IF NOT EXISTS repayment_proofs (
+        contract_id TEXT PRIMARY KEY,
+        receivable_id TEXT NOT NULL,
+        proof_json TEXT NOT NULL,
+        offset TEXT NOT NULL,
+        archived INTEGER NOT NULL DEFAULT 0
+      );
     `);
   }
 
@@ -259,5 +266,60 @@ export class ProjectionStore {
     return rows
       .map((r) => JSON.parse(r.bid_json) as BidSummary)
       .filter((bid) => bid.financier === actingParty);
+  }
+
+  upsertRepaymentProof(
+    proof: {
+      contractId: string;
+      receivableId: string;
+      payer: string;
+      payee: string;
+      amount: string;
+      currency: string;
+      paidAt: string;
+      settlementRef: string;
+    },
+    offset: string
+  ): void {
+    this.db
+      .prepare(
+        `INSERT INTO repayment_proofs (contract_id, receivable_id, proof_json, offset, archived)
+         VALUES (?, ?, ?, ?, 0)
+         ON CONFLICT(contract_id) DO UPDATE SET
+           receivable_id = excluded.receivable_id,
+           proof_json = excluded.proof_json,
+           offset = excluded.offset,
+           archived = 0`
+      )
+      .run(proof.contractId, proof.receivableId, JSON.stringify(proof), offset);
+  }
+
+  getRepaymentProofs(): Array<Record<string, unknown>> {
+    const rows = this.db
+      .prepare(`SELECT proof_json FROM repayment_proofs WHERE archived = 0`)
+      .all() as Array<{ proof_json: string }>;
+    return rows.map((r) => JSON.parse(r.proof_json) as Record<string, unknown>);
+  }
+
+  getSupplierPortfolio(): {
+    receivables: SupplierReceivableView[];
+    repaymentProofs: Array<Record<string, unknown>>;
+  } {
+    return {
+      receivables: this.getSupplierReceivables(),
+      repaymentProofs: this.getRepaymentProofs(),
+    };
+  }
+
+  getBuyerRepayableObligations(): BuyerReceivableView[] {
+    return this.getBuyerObligations().filter((o) =>
+      ["Funded", "Overdue", "PartiallySyndicated"].includes(String(o.state ?? ""))
+    );
+  }
+
+  getFinancierPositions(actingParty: string): SupplierReceivableView[] {
+    return this.getSupplierReceivables().filter(
+      (r) => r.payeeOfRecord?.payee === actingParty
+    );
   }
 }

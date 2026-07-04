@@ -1,0 +1,126 @@
+module Meridian.RepaymentTest where
+
+import Daml.Script
+import DA.Time
+import DA.Date
+import DA.Optional
+import Splice.Api.Token.AllocationV1 qualified as AllocationV1
+import Meridian.Receivable.Receivable
+import Meridian.Receivable.RepaymentProof
+import Meridian.Receivable.Interfaces
+import Meridian.Receivable.Types
+import Meridian.Financing.FinancingRequest
+import Meridian.Financing.Bid
+import Meridian.FinancingFixtures
+import Meridian.Cash.Registry
+import Meridian.CashFixtures
+import Meridian.FinancingTest (issuePostedReceivable, openSampleRound, submitOracleBid)
+
+sampleDueDate : Date
+sampleDueDate = date 2026 Dec 31
+
+awardWithDvP :
+  Party
+  -> Party
+  -> Party
+  -> ContractId FinancingRequest
+  -> ContractId Bid
+  -> Decimal
+  -> Script (ContractId Receivable, ContractId CashRegistry, ContractId MusdRules)
+awardWithDvP admin supplier financier reqCid bidCid advance = do
+  now <- getTime
+  (registryCid, rulesCid) <- bootstrapCashRegistry admin
+  finHolding <- mintMusd registryCid admin financier (advance + 500.0)
+  allocCid <-
+    createAdvanceAllocation rulesCid admin supplier financier supplier advance now finHolding
+  fundedCid <- submit (actAs supplier <> actAs financier) do
+    exerciseCmd reqCid AwardBid with
+      winningBidCid = bidCid
+      settlementAllocationCid = allocCid
+      expectedAdvance = advance
+      settlementFinancier = financier
+  pure (fundedCid, registryCid, rulesCid)
+
+testAwardDvPAndFund : Script ()
+testAwardDvPAndFund = script do
+  admin <- allocateParty "Registry"
+  supplier <- allocateParty "Supplier"
+  buyer <- allocateParty "Buyer"
+  financier <- allocateParty "Financier"
+
+  receivableCid <- issuePostedReceivable supplier buyer
+  reqCid <- openSampleRound receivableCid supplier [financier]
+  (reqCid1, bidCid) <- submitOracleBid reqCid financier 1500.0 0.05
+
+  (fundedCid, _, _) <- awardWithDvP admin supplier financier reqCid1 bidCid 1500.0
+
+  Some rec <- queryContractId supplier fundedCid
+  assert (rec.state == Funded)
+  supplierBal <- holdingBalance supplier
+  assert (supplierBal == 1500.0)
+
+  pure ()
+
+testRepaymentProofAndBuyerPrivacy : Script ()
+testRepaymentProofAndBuyerPrivacy = script do
+  admin <- allocateParty "Registry"
+  supplier <- allocateParty "Supplier"
+  buyer <- allocateParty "Buyer"
+  financier <- allocateParty "Financier"
+
+  receivableCid <- issuePostedReceivable supplier buyer
+  reqCid <- openSampleRound receivableCid supplier [financier]
+  (reqCid1, bidCid) <- submitOracleBid reqCid financier 1500.0 0.05
+  (fundedCid, registryCid, rulesCid) <- awardWithDvP admin supplier financier reqCid1 bidCid 1500.0
+
+  now <- getTime
+  buyerHolding <- mintMusd registryCid admin buyer 3000.0
+  repayAlloc <-
+    createRepaymentAllocation rulesCid admin supplier buyer financier 2000.0 now buyerHolding
+
+  (repaidCid, proofCid) <- submit (actAs buyer <> actAs financier <> actAs supplier) do
+    exerciseCmd fundedCid RepayWithProof with
+      settlementAllocationCid = repayAlloc
+      expectedAmount = 2000.0
+      settlementRef = "repay-test-001"
+
+  Some repaid <- queryContractId supplier repaidCid
+  assert (repaid.state == Repaid)
+  assert (isSome repaid.repaymentProofCid)
+
+  Some proof <- queryContractId supplier proofCid
+  assert (proof.receivableId == repaid.receivableId)
+  assert (proof.amount == 2000.0)
+
+  buyerViews <- queryInterface @IBuyerView buyer
+  let [(_, Some view)] = buyerViews
+  assert (view.faceValue == 2000.0)
+  assert (view.payee == financier)
+
+  pure ()
+
+testOverdueBoundary : Script ()
+testOverdueBoundary = script do
+  admin <- allocateParty "Registry"
+  supplier <- allocateParty "Supplier"
+  buyer <- allocateParty "Buyer"
+  financier <- allocateParty "Financier"
+
+  receivableCid <- issuePostedReceivable supplier buyer
+  reqCid <- openSampleRound receivableCid supplier [financier]
+  (reqCid1, bidCid) <- submitOracleBid reqCid financier 1500.0 0.05
+  (fundedCid, _, _) <- awardWithDvP admin supplier financier reqCid1 bidCid 1500.0
+
+  setTime (time sampleDueDate 0 0 0)
+  submitMustFail supplier do exerciseCmd fundedCid MarkOverdue
+
+  setTime (addRelTime (time sampleDueDate 0 0 0) (days 1))
+  overdueCid <- submit supplier do exerciseCmd fundedCid MarkOverdue
+  Some overdue <- queryContractId supplier overdueCid
+  assert (overdue.state == Overdue)
+
+  defaultedCid <- submit supplier do exerciseCmd overdueCid MarkDefaulted
+  Some defaulted <- queryContractId supplier defaultedCid
+  assert (defaulted.state == Defaulted)
+
+  pure ()

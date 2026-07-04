@@ -1,0 +1,30 @@
+{
+  "environment": "seaport-devnet",
+  "registryAdminOrgId": "meridian-registry",
+  "registryAdminPartyId": "meridian-registry-1::1220a14ca128063b8dc9d1ebb0bd22633be9f2168500f4dbc1ecaeb1855b14e5acf8",
+  "registryContractId": "00c4565aec81f42bc090ec8dca81fabdb6595cab9e4b15d034f42536862e2f9b38ca121220160d6ad1ac1b822033d57d03aa87c664049fe93868935b3266b8185940a8584e",
+  "rulesContractId": "0063adbb15b60f47096db9bbfc396e614c64ad003b900ad5df50b134178e10e98aca1212201e71ec88ce6439a0035b23d2dc0d543202e47920b8de0f8e95b6f6453d8f17a1",
+  "minted": [
+    {
+      "orgId": "meridian-supplier",
+      "partyId": "meridian-supplier-1::1220a14ca128063b8dc9d1ebb0bd22633be9f2168500f4dbc1ecaeb1855b14e5acf8",
+      "amount": "10000.0"
+    },
+    {
+      "orgId": "meridian-buyer",
+      "partyId": "meridian-buyer-1::1220a14ca128063b8dc9d1ebb0bd22633be9f2168500f4dbc1ecaeb1855b14e5acf8",
+      "amount": "50000.0"
+    },
+    {
+      "orgId": "meridian-financier-a",
+      "partyId": "meridian-financier-a::1220a14ca128063b8dc9d1ebb0bd22633be9f2168500f4dbc1ecaeb1855b14e5acf8",
+      "amount": "100000.0"
+    },
+    {
+      "orgId": "meridian-financier-b",
+      "partyId": "meridian-financier-b::1220a14ca128063b8dc9d1ebb0bd22633be9f2168500f4dbc1ecaeb1855b14e5acf8",
+      "amount": "100000.0"
+    }
+  ],
+  "generatedAt": "2026-07-04T09:09:11.171Z"
+}

@@ -9,7 +9,7 @@ export function BuyerPage() {
   const refresh = useCallback(async () => {
     try {
       const [o, p] = await Promise.all([
-        api.getBuyerObligations(),
+        api.getBuyerRepayable().catch(() => api.getBuyerObligations()),
         api.getBuyerProposals(),
       ]);
       setObligations(o.obligations);
@@ -28,6 +28,19 @@ export function BuyerPage() {
   async function cosign(contractId: string) {
     try {
       await api.cosignInvoice(contractId);
+      await refresh();
+    } catch (err) {
+      setError(String(err));
+    }
+  }
+
+  async function repay(o: BuyerObligation) {
+    try {
+      await api.repayObligation(o.contractId, {
+        faceValue: o.faceValue,
+        payeePartyId: o.payee,
+        settlementRef: `portal-${o.receivableId}-${Date.now()}`,
+      });
       await refresh();
     } catch (err) {
       setError(String(err));
@@ -59,6 +72,7 @@ export function BuyerPage() {
             <th>Payee</th>
             <th>Amount</th>
             <th>Due Date</th>
+            <th>Action</th>
           </tr>
         </thead>
         <tbody>
@@ -70,6 +84,11 @@ export function BuyerPage() {
                 {o.faceValue} {o.currency}
               </td>
               <td>{o.dueDate}</td>
+              <td>
+                {(o.state === "Funded" || o.state === "Overdue" || !o.state) && (
+                  <button onClick={() => repay(o)}>Repay obligation</button>
+                )}
+              </td>
             </tr>
           ))}
         </tbody>

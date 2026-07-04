@@ -5,7 +5,19 @@ SDK_VERSION := 3.4.11
 DAML_DIR := daml
 
 .PHONY: install-daml build-daml test-daml build-ts test-ts codegen \
-        bootstrap verify all allocate-devnet upload-dar-devnet smoke-devnet test-phase1-devnet test-phase1-stack test-phase2-devnet test-phase2-stack
+        bootstrap verify all allocate-devnet upload-dar-devnet smoke-devnet test-phase1-devnet test-phase1-stack test-phase2-devnet test-phase2-stack test-phase3-devnet test-phase3-stack bootstrap-cash-devnet build-splice-dars
+
+build-splice-dars:
+	wsl bash infra/scripts/build-splice-dars.sh
+
+bootstrap-cash-devnet:
+	pnpm bootstrap:cash:devnet
+
+test-phase3-devnet:
+	pnpm test:phase3:devnet
+
+test-phase3-stack:
+	pnpm test:phase3:stack
 
 install-daml:
 	curl -fsSL https://get.digitalasset.com/install/install.sh | sh

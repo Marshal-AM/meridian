@@ -1,0 +1,8 @@
+module Meridian.Cash.Merge where
+
+-- | Phase 8 groundwork — MergeHoldings will be wired here.
+template MergeHoldingsStub
+  with
+    admin : Party
+  where
+    signatory admin

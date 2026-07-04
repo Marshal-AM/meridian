@@ -1,0 +1,10 @@
+module Meridian.Cash.Instrument where
+
+import Splice.Api.Token.HoldingV1 qualified as HoldingV1
+
+-- | Meridian USD test token (MUSD), issued by meridian-registry-1.
+musdId : Party -> HoldingV1.InstrumentId
+musdId admin = HoldingV1.InstrumentId with id = "MUSD"; admin
+
+musdSymbol : Text
+musdSymbol = "MUSD"
