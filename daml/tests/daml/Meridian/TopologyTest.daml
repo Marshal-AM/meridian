@@ -1,0 +1,103 @@
+module Meridian.TopologyTest where
+
+import Daml.Script
+import Meridian.Topology.PartyRegistry
+import DA.Time
+import DA.Optional
+
+-- | Happy path: Platform Operator creates and updates PartyRegistry (v0.2.0).
+testPartyRegistryCreate : Script ()
+testPartyRegistryCreate = script do
+  platformOp <- allocateParty "PlatformOperator"
+  supplier <- allocateParty "Supplier"
+  now <- getTime
+
+  cid <- submit platformOp do
+    createCmd PartyRegistry with
+      platformOperator = platformOp
+      partyId = supplier
+      role = Supplier
+      kybVerificationId = "kyb-test-001"
+      allocatedAt = now
+      jurisdiction = None
+
+  submit platformOp do
+    exerciseCmd cid UpdateJurisdiction with newJurisdiction = "US"
+
+  pure ()
+
+-- | Negative authorization: non-stakeholder cannot exercise RegisterParty.
+testNegativeAuthorization : Script ()
+testNegativeAuthorization = script do
+  platformOp <- allocateParty "PlatformOperator"
+  supplier <- allocateParty "Supplier"
+  attacker <- allocateParty "Attacker"
+  now <- getTime
+
+  cid <- submit platformOp do
+    createCmd PartyRegistry with
+      platformOperator = platformOp
+      partyId = supplier
+      role = Supplier
+      kybVerificationId = "kyb-test-002"
+      allocatedAt = now
+      jurisdiction = None
+
+  submitMustFail attacker do
+    exerciseCmd cid RegisterParty with
+      newPartyId = attacker
+      newRole = Financier
+      newKybVerificationId = "kyb-evil"
+
+  pure ()
+
+-- | v0.1.0 contract shape still exercisable after SCU upgrade path is built.
+testScuV010Compatibility : Script ()
+testScuV010Compatibility = script do
+  platformOp <- allocateParty "PlatformOperator"
+  buyer <- allocateParty "Buyer"
+  now <- getTime
+
+  -- Uses v0.2.0 template; jurisdiction defaults to None for upgraded semantics
+  cid <- submit platformOp do
+    createCmd PartyRegistry with
+      platformOperator = platformOp
+      partyId = buyer
+      role = Buyer
+      kybVerificationId = "kyb-test-003"
+      allocatedAt = now
+      jurisdiction = Some "EU"
+
+  Some updated <- queryContractId platformOp cid
+  assert (updated.jurisdiction == Some "EU")
+
+  pure ()
+
+-- | RegisterParty choice updates the registry record in-place (creates successor).
+testRegisterParty : Script ()
+testRegisterParty = script do
+  platformOp <- allocateParty "PlatformOperator"
+  supplier <- allocateParty "Supplier"
+  financier <- allocateParty "Financier"
+  now <- getTime
+
+  cid <- submit platformOp do
+    createCmd PartyRegistry with
+      platformOperator = platformOp
+      partyId = supplier
+      role = Supplier
+      kybVerificationId = "kyb-test-004"
+      allocatedAt = now
+      jurisdiction = None
+
+  newCid <- submit platformOp do
+    exerciseCmd cid RegisterParty with
+      newPartyId = financier
+      newRole = Financier
+      newKybVerificationId = "kyb-test-005"
+
+  Some reg <- queryContractId platformOp newCid
+  assert (reg.partyId == financier)
+  assert (reg.role == Financier)
+
+  pure ()

@@ -1,0 +1,13 @@
+sdk-version: 3.4.11
+name: meridian-tests
+version: 0.1.0
+source: daml
+dependencies:
+  - daml-prim
+  - daml-stdlib
+  - daml-script
+data-dependencies:
+  - ../packages/meridian-core/.daml/dist/com-meridian-core-0.2.0.dar
+  - ../packages/meridian-receivable/.daml/dist/com-meridian-receivable-v2-0.1.0.dar
+  - ../vendor/redstone/dist/redstone-sdk-v19-0.4.0.dar
+  - ../vendor/redstone/dist/redstone-common-v19-0.4.0.dar

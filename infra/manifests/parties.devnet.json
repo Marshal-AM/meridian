@@ -1,0 +1,72 @@
+{
+  "environment": "seaport-devnet",
+  "validatorId": "seaport-devnet",
+  "ledgerApiUrl": "https://ledger-api.validator.devnet.sandbox.fivenorth.io",
+  "generatedAt": "2026-07-04T03:51:41.333Z",
+  "personas": [
+    {
+      "orgId": "meridian-supplier",
+      "role": "Supplier",
+      "partyHint": "meridian-supplier-1",
+      "partyId": "meridian-supplier-1::1220a14ca128063b8dc9d1ebb0bd22633be9f2168500f4dbc1ecaeb1855b14e5acf8",
+      "displayName": "Meridian Supplier",
+      "allocatedAt": "2026-07-03T06:48:13.910Z"
+    },
+    {
+      "orgId": "meridian-buyer",
+      "role": "Buyer",
+      "partyHint": "meridian-buyer-1",
+      "partyId": "meridian-buyer-1::1220a14ca128063b8dc9d1ebb0bd22633be9f2168500f4dbc1ecaeb1855b14e5acf8",
+      "displayName": "Meridian Buyer",
+      "allocatedAt": "2026-07-03T06:48:15.634Z"
+    },
+    {
+      "orgId": "meridian-financier-a",
+      "role": "Financier",
+      "partyHint": "meridian-financier-a",
+      "partyId": "meridian-financier-a::1220a14ca128063b8dc9d1ebb0bd22633be9f2168500f4dbc1ecaeb1855b14e5acf8",
+      "displayName": "Meridian Financier A",
+      "allocatedAt": "2026-07-03T06:48:21.504Z"
+    },
+    {
+      "orgId": "meridian-financier-b",
+      "role": "Financier",
+      "partyHint": "meridian-financier-b",
+      "partyId": "meridian-financier-b::1220a14ca128063b8dc9d1ebb0bd22633be9f2168500f4dbc1ecaeb1855b14e5acf8",
+      "displayName": "Meridian Financier B",
+      "allocatedAt": "2026-07-03T06:48:23.817Z"
+    },
+    {
+      "orgId": "meridian-registry",
+      "role": "Registry",
+      "partyHint": "meridian-registry-1",
+      "partyId": "meridian-registry-1::1220a14ca128063b8dc9d1ebb0bd22633be9f2168500f4dbc1ecaeb1855b14e5acf8",
+      "displayName": "Meridian Registry",
+      "allocatedAt": "2026-07-03T06:48:25.753Z"
+    },
+    {
+      "orgId": "meridian-oracle",
+      "role": "OracleProvider",
+      "partyHint": "meridian-oracle-1",
+      "partyId": "meridian-oracle-1::1220a14ca128063b8dc9d1ebb0bd22633be9f2168500f4dbc1ecaeb1855b14e5acf8",
+      "displayName": "Meridian Oracle",
+      "allocatedAt": "2026-07-03T06:48:27.057Z"
+    },
+    {
+      "orgId": "meridian-platform",
+      "role": "PlatformOperator",
+      "partyHint": "meridian-platform-operator-1",
+      "partyId": "meridian-platform-operator-1::1220a14ca128063b8dc9d1ebb0bd22633be9f2168500f4dbc1ecaeb1855b14e5acf8",
+      "displayName": "Meridian Platform Operator",
+      "allocatedAt": "2026-07-03T06:48:28.818Z"
+    },
+    {
+      "orgId": "meridian-regulator",
+      "role": "Regulator",
+      "partyHint": "meridian-regulator-1",
+      "partyId": "meridian-regulator-1::1220a14ca128063b8dc9d1ebb0bd22633be9f2168500f4dbc1ecaeb1855b14e5acf8",
+      "displayName": "Meridian Regulator",
+      "allocatedAt": "2026-07-03T06:48:30.166Z"
+    }
+  ]
+}

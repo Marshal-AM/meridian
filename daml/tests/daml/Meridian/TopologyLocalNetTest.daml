@@ -1,0 +1,11 @@
+module Meridian.TopologyLocalNetTest where
+
+import Daml.Script
+
+-- | LocalNet integration test — run against live validators when available.
+-- | Nightly CI / manual: dpm test --test-pattern LocalNet
+testLocalNetPlaceholder : Script ()
+testLocalNetPlaceholder = script do
+  -- Validates Script runner is wired; full topology assertions run via
+  -- infra/scripts/verify-exit-criteria.ps1 against parties.json manifest.
+  pure ()

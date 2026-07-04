@@ -1,0 +1,331 @@
+module Meridian.FinancingTest where
+
+import Daml.Script
+import DA.Time
+import DA.Date
+import DA.Optional
+import DA.Map (toList)
+import Meridian.Receivable.AssignmentConsentPolicy
+import Meridian.Receivable.Types
+import Meridian.Receivable.Receivable
+import Meridian.Receivable.ReceivableProposal
+import Meridian.Receivable.Interfaces
+import Meridian.Financing.FinancingRequest
+import Meridian.Financing.FinancingRoundFactory
+import Meridian.Financing.Bid
+import Meridian.Financing.Types
+import Meridian.FinancingFixtures
+
+sampleDueDate : Date
+sampleDueDate = date 2026 Dec 31
+
+roundDeadline : Time
+roundDeadline = addRelTime sampleOracleLedgerTime (days 7)
+
+issuePostedReceivable : Party -> Party -> Script (ContractId Receivable)
+issuePostedReceivable supplier buyer = do
+  proposalCid <- submit supplier do
+    createCmd ReceivableProposal with
+      proposalId = "FIN-001"
+      supplier
+      buyer
+      lineItems =
+        [ LineItem with description = "Services"; quantity = 1.0; unitPrice = 2000.0 ]
+      faceValue = 2000.0
+      currency = "USD"
+      dueDate = sampleDueDate
+      consentSource = InlineConsent True
+  receivableCid <- submit buyer do exerciseCmd proposalCid CoSignAndIssue
+  submit supplier do exerciseCmd receivableCid PostForBid
+
+openSampleRound :
+  ContractId Receivable
+  -> Party
+  -> [Party]
+  -> Script (ContractId FinancingRequest)
+openSampleRound receivableCid supplier financiers = do
+  setTime sampleOracleLedgerTime
+  factoryCid <- submit supplier do createCmd FinancingRoundFactory with supplier
+  submit supplier do
+    exerciseCmd factoryCid OpenRound with
+      receivableCid
+      requestId = "ROUND-001"
+      financiers
+      deadline = roundDeadline
+      pricingBandMin = 0.01
+      pricingBandMax = 0.15
+      redstoneFeedId = sofrFeedIdAscii
+
+submitOracleBid :
+  ContractId FinancingRequest
+  -> Party
+  -> Decimal
+  -> Decimal
+  -> Script (ContractId FinancingRequest, ContractId Bid)
+submitOracleBid reqCid financier advance discount = do
+  setTime sampleOracleLedgerTime
+  submit financier do
+    exerciseCmd reqCid SubmitBid with
+      financier
+      advanceAmount = advance
+      discountRate = discount
+      redstonePayload = sampleSofrPayloadHex
+      redstoneTimestampMs = sampleRedstoneTimestampMs
+      mode = OracleAnchored
+      ledgerTime = sampleOracleLedgerTime
+
+testFullRoundHappyPath : Script ()
+testFullRoundHappyPath = script do
+  supplier <- allocateParty "Supplier"
+  buyer <- allocateParty "Buyer"
+  finA <- allocateParty "FinancierA"
+  finB <- allocateParty "FinancierB"
+
+  receivableCid <- issuePostedReceivable supplier buyer
+  reqCid <- openSampleRound receivableCid supplier [finA, finB]
+
+  (reqCid1, bidA) <- submitOracleBid reqCid finA 1500.0 0.05
+  (reqCid2, bidB) <- submitOracleBid reqCid1 finB 1600.0 0.04
+
+  fundedCid <- submit supplier do
+    exerciseCmd reqCid2 AwardBid with winningBidCid = bidB
+
+  Some funded <- queryContractId supplier fundedCid
+  assert (funded.state == Funded)
+  assert (funded.payeeOfRecord.payee == finB)
+
+  pure ()
+
+testSealedBidPrivacy : Script ()
+testSealedBidPrivacy = script do
+  supplier <- allocateParty "Supplier"
+  buyer <- allocateParty "Buyer"
+  finA <- allocateParty "FinancierA"
+  finB <- allocateParty "FinancierB"
+
+  receivableCid <- issuePostedReceivable supplier buyer
+  reqCid <- openSampleRound receivableCid supplier [finA, finB]
+  (_reqCid1, _bidA) <- submitOracleBid reqCid finA 1500.0 0.05
+
+  finBBids <- query @Bid finB
+  assert (null finBBids)
+
+  pure ()
+
+testUninvitedFinancierNegative : Script ()
+testUninvitedFinancierNegative = script do
+  supplier <- allocateParty "Supplier"
+  buyer <- allocateParty "Buyer"
+  finA <- allocateParty "FinancierA"
+  finC <- allocateParty "FinancierC"
+
+  receivableCid <- issuePostedReceivable supplier buyer
+  reqCid <- openSampleRound receivableCid supplier [finA]
+
+  finCRequests <- query @FinancingRequest finC
+  assert (null finCRequests)
+
+  submitMustFail finC do
+    exerciseCmd reqCid SubmitBid with
+      financier = finC
+      advanceAmount = 1000.0
+      discountRate = 0.05
+      redstonePayload = sampleSofrPayloadHex
+      redstoneTimestampMs = sampleRedstoneTimestampMs
+      mode = OracleAnchored
+      ledgerTime = sampleOracleLedgerTime
+
+  pure ()
+
+testOneBidPerFinancier : Script ()
+testOneBidPerFinancier = script do
+  supplier <- allocateParty "Supplier"
+  buyer <- allocateParty "Buyer"
+  finA <- allocateParty "FinancierA"
+
+  receivableCid <- issuePostedReceivable supplier buyer
+  reqCid <- openSampleRound receivableCid supplier [finA]
+  (_reqCid1, _) <- submitOracleBid reqCid finA 1500.0 0.05
+
+  submitMustFail finA do
+    exerciseCmd _reqCid1 SubmitBid with
+      financier = finA
+      advanceAmount = 1400.0
+      discountRate = 0.04
+      redstonePayload = sampleSofrPayloadHex
+      redstoneTimestampMs = sampleRedstoneTimestampMs
+      mode = OracleAnchored
+      ledgerTime = sampleOracleLedgerTime
+
+  pure ()
+
+testOracleStaleRejected : Script ()
+testOracleStaleRejected = script do
+  supplier <- allocateParty "Supplier"
+  buyer <- allocateParty "Buyer"
+  finA <- allocateParty "FinancierA"
+
+  receivableCid <- issuePostedReceivable supplier buyer
+  reqCid <- openSampleRound receivableCid supplier [finA]
+
+  submitMustFail finA do
+    exerciseCmd reqCid SubmitBid with
+      financier = finA
+      advanceAmount = 1500.0
+      discountRate = 0.05
+      redstonePayload = sampleSofrPayloadHex
+      redstoneTimestampMs = sampleRedstoneTimestampMs
+      mode = OracleAnchored
+      ledgerTime = staleOracleLedgerTime
+
+  pure ()
+
+testOracleMissingRejected : Script ()
+testOracleMissingRejected = script do
+  supplier <- allocateParty "Supplier"
+  buyer <- allocateParty "Buyer"
+  finA <- allocateParty "FinancierA"
+
+  receivableCid <- issuePostedReceivable supplier buyer
+  reqCid <- openSampleRound receivableCid supplier [finA]
+
+  submitMustFail finA do
+    exerciseCmd reqCid SubmitBid with
+      financier = finA
+      advanceAmount = 1500.0
+      discountRate = 0.05
+      redstonePayload = invalidPayloadHex
+      redstoneTimestampMs = sampleRedstoneTimestampMs
+      mode = OracleAnchored
+      ledgerTime = sampleOracleLedgerTime
+
+  pure ()
+
+testPauseAndFallbackVisible : Script ()
+testPauseAndFallbackVisible = script do
+  supplier <- allocateParty "Supplier"
+  buyer <- allocateParty "Buyer"
+  finA <- allocateParty "FinancierA"
+
+  receivableCid <- issuePostedReceivable supplier buyer
+  reqCid <- openSampleRound receivableCid supplier [finA]
+
+  pausedCid <- submit supplier do exerciseCmd reqCid PauseRound
+  Some paused <- queryContractId supplier pausedCid
+  assert (paused.roundState == Paused)
+
+  fallbackCid <- submit supplier do exerciseCmd pausedCid EnterStaticReferenceFallback
+  Some fallback <- queryContractId finA fallbackCid
+  assert (fallback.roundState == StaticReferenceFallback)
+
+  pure ()
+
+testBuyerNoPricingPostFund : Script ()
+testBuyerNoPricingPostFund = script do
+  supplier <- allocateParty "Supplier"
+  buyer <- allocateParty "Buyer"
+  finA <- allocateParty "FinancierA"
+
+  receivableCid <- issuePostedReceivable supplier buyer
+  reqCid <- openSampleRound receivableCid supplier [finA]
+  (reqCid1, bidA) <- submitOracleBid reqCid finA 1500.0 0.05
+  fundedCid <- submit supplier do exerciseCmd reqCid1 AwardBid with winningBidCid = bidA
+
+  buyerViews <- queryInterface @IBuyerView buyer
+  assert (length buyerViews == 1)
+  let [(_, Some view)] = buyerViews
+  assert (view.faceValue == 2000.0)
+  assert (view.payee == finA)
+
+  pure ()
+
+testDeadlineBoundary : Script ()
+testDeadlineBoundary = script do
+  supplier <- allocateParty "Supplier"
+  buyer <- allocateParty "Buyer"
+  finA <- allocateParty "FinancierA"
+
+  receivableCid <- issuePostedReceivable supplier buyer
+  reqCid <- openSampleRound receivableCid supplier [finA]
+
+  setTime roundDeadline
+  (reqCid1, bidA) <- submitOracleBid reqCid finA 1500.0 0.05
+
+  setTime (addRelTime roundDeadline (seconds 1))
+  submitMustFail finA do
+    exerciseCmd reqCid1 SubmitBid with
+      financier = finA
+      advanceAmount = 1400.0
+      discountRate = 0.04
+      redstonePayload = sampleSofrPayloadHex
+      redstoneTimestampMs = sampleRedstoneTimestampMs
+      mode = OracleAnchored
+      ledgerTime = roundDeadline
+
+  submitMustFail supplier do
+    exerciseCmd reqCid1 AwardBid with winningBidCid = bidA
+
+  pure ()
+
+testReplaceBid : Script ()
+testReplaceBid = script do
+  supplier <- allocateParty "Supplier"
+  buyer <- allocateParty "Buyer"
+  finA <- allocateParty "FinancierA"
+
+  receivableCid <- issuePostedReceivable supplier buyer
+  reqCid <- openSampleRound receivableCid supplier [finA]
+  (reqCid1, _bidA) <- submitOracleBid reqCid finA 1500.0 0.05
+
+  setTime sampleOracleLedgerTime
+  (reqCid2, bidA2) <- submit finA do
+    exerciseCmd reqCid1 ReplaceBid with
+      financier = finA
+      advanceAmount = 1450.0
+      discountRate = 0.04
+      redstonePayload = sampleSofrPayloadHex
+      redstoneTimestampMs = sampleRedstoneTimestampMs
+      mode = OracleAnchored
+      ledgerTime = sampleOracleLedgerTime
+
+  finABids <- query @Bid finA
+  assert (length finABids == 1)
+  let [(bidCid, bid)] = finABids
+  assert (bidCid == bidA2)
+  assert (bid.discountRate == 0.04)
+
+  Some req <- queryContractId supplier reqCid2
+  assert (length (toList req.activeBids) == 1)
+
+  pure ()
+
+testAwardAtomicity : Script ()
+testAwardAtomicity = script do
+  supplier <- allocateParty "Supplier"
+  buyer <- allocateParty "Buyer"
+  finA <- allocateParty "FinancierA"
+  finB <- allocateParty "FinancierB"
+
+  receivableCid <- issuePostedReceivable supplier buyer
+  reqCid <- openSampleRound receivableCid supplier [finA, finB]
+  (reqCid1, _) <- submitOracleBid reqCid finA 1500.0 0.05
+  (reqCid2, bidB) <- submitOracleBid reqCid1 finB 1600.0 0.04
+
+  fundedCid <- submit supplier do
+    exerciseCmd reqCid2 AwardBid with winningBidCid = bidB
+
+  finABids <- query @Bid finA
+  finBBids <- query @Bid finB
+  assert (null finABids)
+  assert (null finBBids)
+
+  supplierReqs <- query @FinancingRequest supplier
+  assert (length supplierReqs == 1)
+  let [(_, req)] = supplierReqs
+  assert (req.roundState == Awarded)
+
+  Some funded <- queryContractId supplier fundedCid
+  assert (funded.state == Funded)
+  assert (funded.payeeOfRecord.payee == finB)
+
+  pure ()

@@ -1,0 +1,6 @@
+packages:
+  - packages/meridian-core-v010
+  - packages/meridian-core
+  - packages/meridian-receivable-v010
+  - packages/meridian-receivable
+  - tests

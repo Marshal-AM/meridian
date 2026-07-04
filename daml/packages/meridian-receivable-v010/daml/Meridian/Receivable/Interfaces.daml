@@ -1,0 +1,62 @@
+module Meridian.Receivable.Interfaces where
+
+import DA.Time
+import Meridian.Receivable.Types
+import Meridian.Receivable.AssignmentConsentPolicy
+
+-- | Buyer-scoped view: payee, amount, due date only (§7.5, §8.3).
+data BuyerViewData = BuyerViewData
+  with
+    receivableId : Text
+    payee : Party
+    faceValue : Decimal
+    currency : Text
+    dueDate : Date
+  deriving (Eq, Show)
+
+interface IBuyerView where
+  viewtype BuyerViewData
+
+-- | Supplier-scoped view: full economics and lifecycle.
+data SupplierViewData = SupplierViewData
+  with
+    receivableId : Text
+    buyer : Party
+    lineItems : [LineItem]
+    faceValue : Decimal
+    currency : Text
+    dueDate : Date
+    state : ReceivableState
+    consentSource : ConsentSource
+    assignmentConsentGranted : Bool
+    payeeOfRecord : PayeeOfRecord
+    bidHistory : [Text]
+  deriving (Eq, Show)
+
+interface ISupplierView where
+  viewtype SupplierViewData
+
+-- | Financier-scoped view: only populated when financier is invited (Phase 2+).
+data FinancierViewData = FinancierViewData
+  with
+    receivableId : Text
+    financier : Party
+    invited : Bool
+    faceValue : Optional Decimal
+    currency : Optional Text
+    dueDate : Optional Date
+  deriving (Eq, Show)
+
+interface IFinancierView where
+  viewtype FinancierViewData
+
+-- | Regulator-scoped view: jurisdiction + aggregate exposure only (Phase 7 activation).
+data RegulatorViewData = RegulatorViewData
+  with
+    receivableId : Text
+    jurisdiction : Optional Text
+    aggregateExposure : Decimal
+  deriving (Eq, Show)
+
+interface IRegulatorView where
+  viewtype RegulatorViewData

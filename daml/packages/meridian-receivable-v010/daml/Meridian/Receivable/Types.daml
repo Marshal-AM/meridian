@@ -1,0 +1,49 @@
+module Meridian.Receivable.Types where
+
+import DA.Time
+
+-- | Single invoice line item.
+data LineItem = LineItem
+  with
+    description : Text
+    quantity : Decimal
+    unitPrice : Decimal
+  deriving (Eq, Show)
+
+-- | Lifecycle state machine (§8.2).
+data ReceivableState
+  = Issued
+  | PostedForBid
+  | Funded
+  | PartiallySyndicated
+  | Repaid
+  | Defaulted
+  deriving (Eq, Show)
+
+-- | Current payee-of-record on the receivable.
+data PayeeOfRecord = PayeeOfRecord
+  with
+    payee : Party
+    payeeRole : Text
+  deriving (Eq, Show)
+
+lineItemTotal : LineItem -> Decimal
+lineItemTotal item = item.quantity * item.unitPrice
+
+sumLineItems : [LineItem] -> Decimal
+sumLineItems items = sum (map lineItemTotal items)
+
+isTerminalState : ReceivableState -> Bool
+isTerminalState Repaid = True
+isTerminalState Defaulted = True
+isTerminalState _ = False
+
+canTransition : ReceivableState -> ReceivableState -> Bool
+canTransition Issued PostedForBid = True
+canTransition PostedForBid Funded = True
+canTransition Funded PartiallySyndicated = True
+canTransition Funded Repaid = True
+canTransition Funded Defaulted = True
+canTransition PartiallySyndicated Repaid = True
+canTransition PartiallySyndicated Defaulted = True
+canTransition _ _ = False

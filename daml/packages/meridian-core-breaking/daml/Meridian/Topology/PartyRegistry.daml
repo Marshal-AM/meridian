@@ -1,0 +1,36 @@
+module Meridian.Topology.PartyRegistry where
+
+import DA.Time
+
+-- | INTENTIONALLY BREAKING: removes OrgRole constructor for SCU CI negative test.
+data OrgRole
+  = PlatformOperator
+  | Supplier
+  | Buyer
+  | Financier
+  | Registry
+  deriving (Eq, Show)
+
+template PartyRegistry
+  with
+    platformOperator : Party
+    partyId : Party
+    role : OrgRole
+    kybVerificationId : Text
+    allocatedAt : Time
+  where
+    signatory platformOperator
+
+    choice RegisterParty : ContractId PartyRegistry
+      with
+        newPartyId : Party
+        newRole : OrgRole
+        newKybVerificationId : Text
+      controller platformOperator
+      do
+        now <- getTime
+        create this with
+          partyId = newPartyId
+          role = newRole
+          kybVerificationId = newKybVerificationId
+          allocatedAt = now

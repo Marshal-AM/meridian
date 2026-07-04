@@ -1,0 +1,32 @@
+module Meridian.Receivable.AssignmentConsentPolicy where
+
+import DA.Time
+import DA.Optional
+
+-- | Per-invoice inline consent or reference to a master-agreement policy (§7.1).
+data ConsentSource
+  = InlineConsent Bool
+  | FromPolicy (ContractId AssignmentConsentPolicy)
+  deriving (Eq, Show)
+
+-- | Master-agreement-level standing assignment consent, signed by buyer.
+template AssignmentConsentPolicy
+  with
+    buyer : Party
+    supplier : Party
+    masterAgreementId : Text
+    grantedAt : Time
+    allowsAssignment : Bool
+  where
+    signatory buyer
+    observer supplier
+
+    choice Revoke : ContractId AssignmentConsentPolicy
+      controller buyer
+      do create this with allowsAssignment = False
+
+resolveConsent : ConsentSource -> Update Bool
+resolveConsent (InlineConsent granted) = pure granted
+resolveConsent (FromPolicy policyCid) = do
+  policy <- fetch policyCid
+  pure policy.allowsAssignment

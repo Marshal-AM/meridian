@@ -1,0 +1,113 @@
+name: DevNet Smoke
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  schedule:
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+
+env:
+  SDK_VERSION: "3.4.11"
+
+jobs:
+  daml-ci:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install DPM
+        run: curl -fsSL https://get.digitalasset.com/install/install.sh | sh
+
+      - name: Add DPM to PATH
+        run: echo "$HOME/.dpm/bin" >> $GITHUB_PATH
+
+      - name: Install Daml SDK
+        run: dpm install ${{ env.SDK_VERSION }}
+
+      - name: Vendor RedStone canton-connector
+        run: bash infra/scripts/vendor-redstone.sh
+
+      - name: Build RedStone DARs
+        run: bash infra/scripts/build-redstone-dars.sh
+
+      - name: Build Daml packages
+        working-directory: daml
+        run: dpm build --all
+
+      - name: Run Daml Script tests
+        working-directory: daml/tests
+        run: dpm test
+
+  devnet-smoke:
+    runs-on: ubuntu-latest
+    needs: daml-ci
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Install and build
+        run: |
+          pnpm install
+          pnpm build
+
+      - name: Run unit tests
+        run: pnpm test
+
+      - name: DevNet auth + ledger-end smoke
+        env:
+          DEVNET_CLIENT_SECRET: ${{ secrets.DEVNET_CLIENT_SECRET }}
+        run: |
+          if [ -z "$DEVNET_CLIENT_SECRET" ]; then
+            echo "DEVNET_CLIENT_SECRET not configured — skipping live DevNet smoke"
+            exit 0
+          fi
+          pnpm smoke:devnet
+          pnpm exec tsx scripts/devnet-smoke.ts ledger-end
+          pnpm exec tsx scripts/devnet-smoke.ts verify-parties
+
+      - name: Phase 1 privacy integration (live Seaport)
+        env:
+          DEVNET_CLIENT_SECRET: ${{ secrets.DEVNET_CLIENT_SECRET }}
+        run: |
+          if [ -z "$DEVNET_CLIENT_SECRET" ]; then
+            echo "DEVNET_CLIENT_SECRET not configured — skipping Phase 1 integration"
+            exit 0
+          fi
+          curl -fsSL https://get.digitalasset.com/install/install.sh | sh
+          echo "$HOME/.dpm/bin" >> $GITHUB_PATH
+          dpm install ${{ env.SDK_VERSION }}
+          cd daml && dpm build --all && cd ..
+          pnpm grant:devnet
+          pnpm upload:dar:devnet
+          pnpm exec tsx scripts/phase1-devnet-integration.ts
+          pnpm test:phase1:stack
+
+      - name: Phase 2 financing integration (live Seaport)
+        env:
+          DEVNET_CLIENT_SECRET: ${{ secrets.DEVNET_CLIENT_SECRET }}
+        run: |
+          if [ -z "$DEVNET_CLIENT_SECRET" ]; then
+            echo "DEVNET_CLIENT_SECRET not configured — skipping Phase 2 integration"
+            exit 0
+          fi
+          curl -fsSL https://get.digitalasset.com/install/install.sh | sh
+          echo "$HOME/.dpm/bin" >> $GITHUB_PATH
+          dpm install ${{ env.SDK_VERSION }}
+          bash infra/scripts/vendor-redstone.sh
+          bash infra/scripts/build-redstone-dars.sh
+          cd daml && dpm build --all && cd ..
+          pnpm grant:devnet
+          pnpm upload:dar:devnet
+          pnpm redstone:fetch
+          pnpm test:phase2:devnet
+          pnpm test:phase2:stack

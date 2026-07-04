@@ -1,0 +1,137 @@
+module Meridian.Financing.FinancingRequest where
+
+import DA.Time
+import DA.Map as M
+import DA.Action (when)
+import DA.Foldable (forA_)
+import Meridian.Financing.Types
+import Meridian.Financing.Bid
+import Meridian.Receivable.Receivable
+import Meridian.Receivable.Types
+
+-- | Supplier-initiated sealed-bid financing round (§8.2).
+template FinancingRequest
+  with
+    requestId : Text
+    receivableCid : ContractId Receivable
+    supplier : Party
+    invitedFinanciers : [Party]
+    deadline : Time
+    pricingBandMin : Decimal
+    pricingBandMax : Decimal
+    redstoneFeedId : [Int]
+    roundState : RoundState
+    activeBids : Map Party (ContractId Bid)
+    bidHistory : [Text]
+  where
+    signatory supplier
+    observer invitedFinanciers
+
+    ensure
+      pricingBandMin <= pricingBandMax
+      && not (Prelude.null invitedFinanciers)
+
+    choice SubmitBid : (ContractId FinancingRequest, ContractId Bid)
+      with
+        financier : Party
+        advanceAmount : Decimal
+        discountRate : Decimal
+        redstonePayload : Text
+        redstoneTimestampMs : Int
+        mode : BidPricingMode
+        ledgerTime : Time
+      controller financier
+      do
+        assertRoundOpen roundState
+        assertBeforeDeadline deadline
+        assertMsg "Financier not invited" (financier `elem` invitedFinanciers)
+        assertMsg "Financier already has active bid" (not (M.member financier activeBids))
+        bidCid <- createBid
+          requestId
+          financier
+          supplier
+          advanceAmount
+          discountRate
+          redstonePayload
+          redstoneTimestampMs
+          mode
+          redstoneFeedId
+          pricingBandMin
+          pricingBandMax
+          ledgerTime
+        newReqCid <- create this with activeBids = M.insert financier bidCid activeBids
+        pure (newReqCid, bidCid)
+
+    choice ReplaceBid : (ContractId FinancingRequest, ContractId Bid)
+      with
+        financier : Party
+        advanceAmount : Decimal
+        discountRate : Decimal
+        redstonePayload : Text
+        redstoneTimestampMs : Int
+        mode : BidPricingMode
+        ledgerTime : Time
+      controller financier
+      do
+        assertRoundOpen roundState
+        assertBeforeDeadline deadline
+        assertMsg "Financier not invited" (financier `elem` invitedFinanciers)
+        priorBidCid <- case M.lookup financier activeBids of
+          None -> abort "No prior bid to replace"
+          Some cid -> pure cid
+        exercise priorBidCid SupplierClose
+        bidCid <- createBid
+          requestId
+          financier
+          supplier
+          advanceAmount
+          discountRate
+          redstonePayload
+          redstoneTimestampMs
+          mode
+          redstoneFeedId
+          pricingBandMin
+          pricingBandMax
+          ledgerTime
+        newReqCid <- create this with activeBids = M.insert financier bidCid activeBids
+        pure (newReqCid, bidCid)
+
+    choice PauseRound : ContractId FinancingRequest
+      controller supplier
+      do create this with roundState = Paused
+
+    choice EnterStaticReferenceFallback : ContractId FinancingRequest
+      controller supplier
+      do create this with roundState = StaticReferenceFallback
+
+    choice ExpireRound : ContractId FinancingRequest
+      controller supplier
+      do
+        now <- getTime
+        assertMsg "Round has not reached deadline" (now > deadline)
+        create this with roundState = Expired
+
+    choice AwardBid : ContractId Receivable
+      with
+        winningBidCid : ContractId Bid
+      controller supplier
+      do
+        assertRoundOpen roundState
+        assertBeforeDeadline deadline
+        winningBid <- fetch winningBidCid
+        assertMsg "Bid belongs to this round" (winningBid.requestId == requestId)
+        assertMsg "Winning bid not active in this round" (M.member winningBid.financier activeBids)
+        assertMsg "Winning bid contract mismatch" (M.lookup winningBid.financier activeBids == Some winningBidCid)
+        _ <- fetch receivableCid
+        let historyEntry =
+              show winningBid.financier <> ":" <> show winningBid.discountRate <> ":" <> winningBid.reportId
+        fundedCid <- exercise receivableCid ApplyFunding with
+          financierPayee = winningBid.financier
+          historyEntry
+        exercise winningBidCid SupplierClose
+        forA_ (map snd (M.toList activeBids)) (\cid -> when (cid /= winningBidCid) (exercise cid SupplierClose))
+        _ <- create this with
+          roundState = Awarded
+          activeBids = M.empty
+          bidHistory = historyEntry :: bidHistory
+        pure fundedCid

@@ -1,0 +1,45 @@
+module Meridian.Financing.FinancingRoundFactory where
+
+import DA.Time
+import DA.Map as M
+import Meridian.Financing.Types
+import Meridian.Financing.FinancingRequest
+import Meridian.Receivable.Receivable
+import Meridian.Receivable.Types
+
+-- | Opens a sealed-bid round against a PostedForBid receivable (§8.2).
+template FinancingRoundFactory
+  with
+    supplier : Party
+  where
+    signatory supplier
+
+    choice OpenRound : ContractId FinancingRequest
+      with
+        receivableCid : ContractId Receivable
+        requestId : Text
+        financiers : [Party]
+        deadline : Time
+        pricingBandMin : Decimal
+        pricingBandMax : Decimal
+        redstoneFeedId : [Int]
+      controller supplier
+      do
+        receivable <- fetch receivableCid
+        assertMsg "Supplier must own receivable" (receivable.supplier == supplier)
+        assertMsg "Receivable must be PostedForBid" (receivable.state == PostedForBid)
+        assertMsg "Pricing band invalid" (pricingBandMin <= pricingBandMax)
+        assertMsg "Must invite at least one financier" (not (Prelude.null financiers))
+        updatedReceivableCid <- exercise receivableCid SetInvitedFinanciers with financiers
+        create FinancingRequest with
+          requestId
+          receivableCid = updatedReceivableCid
+          supplier
+          invitedFinanciers = financiers
+          deadline
+          pricingBandMin
+          pricingBandMax
+          redstoneFeedId
+          roundState = RoundOpen
+          activeBids = mempty
+          bidHistory = []

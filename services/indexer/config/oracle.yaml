@@ -1,0 +1,5 @@
+orgId: oracle
+actingParty: meridian-oracle-1
+jsonApiUrl: https://ledger-api.validator.devnet.sandbox.fivenorth.io
+dataDir: ./data
+rebuild: false

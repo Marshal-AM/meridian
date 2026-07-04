@@ -1,0 +1,52 @@
+module Meridian.Receivable.ReceivableProposal where
+
+import DA.Time
+import Meridian.Receivable.Types
+import Meridian.Receivable.AssignmentConsentPolicy
+import Meridian.Receivable.Receivable
+
+-- | Draft invoice awaiting buyer co-signature (§10.1, §10.2).
+template ReceivableProposal
+  with
+    proposalId : Text
+    supplier : Party
+    buyer : Party
+    lineItems : [LineItem]
+    faceValue : Decimal
+    currency : Text
+    dueDate : Date
+    consentSource : ConsentSource
+  where
+    signatory supplier
+    observer buyer
+
+    ensure faceValue >= 0.0
+
+    choice CoSignAndIssue : ContractId Receivable
+      controller buyer
+      do
+        consentGranted <- resolveConsent consentSource
+        assertMsg "Assignment consent must be granted at issuance" consentGranted
+        create Receivable with
+          receivableId = proposalId
+          supplier
+          buyer
+          lineItems
+          faceValue
+          currency
+          dueDate
+          state = Issued
+          consentSource
+          assignmentConsentGranted = consentGranted
+          payeeOfRecord = PayeeOfRecord with
+            payee = supplier
+            payeeRole = "Supplier"
+          jurisdiction = None
+          invitedFinanciers = []
+          syndicationCapTable = []
+          fundedPricingHidden = False
+          bidHistory = []
+
+    choice Withdraw : ()
+      controller supplier
+      do pure ()

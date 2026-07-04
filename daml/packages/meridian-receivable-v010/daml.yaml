@@ -1,0 +1,10 @@
+sdk-version: 3.4.11
+name: com-meridian-receivable
+version: 0.1.0
+source: daml
+dependencies:
+  - daml-prim
+  - daml-stdlib
+build-options:
+  - --target=2.1
+  - -Wno-upgrade-interfaces

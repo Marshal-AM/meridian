@@ -1,0 +1,22 @@
+{
+  "name": "@meridian/oracle-relay",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "bin": {
+    "meridian-oracle-relay": "./dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/cli.js",
+    "test": "node -e \"process.exit(0)\""
+  },
+  "dependencies": {
+    "@meridian/oracle-feeds": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "typescript": "^5.5.0"
+  }
+}

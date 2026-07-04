@@ -1,0 +1,49 @@
+module Meridian.Topology.PartyRegistry where
+
+import DA.Time
+import DA.Optional
+
+-- | Organizational role hosted on a distinct participant node.
+data OrgRole
+  = PlatformOperator
+  | Supplier
+  | Buyer
+  | Financier
+  | Registry
+  | OracleProvider
+  | Regulator
+  deriving (Eq, Show)
+
+-- | On-ledger audit anchor for KYB-gated party allocation (Phase 0).
+-- | v0.2.0 SCU: added optional jurisdiction field and UpdateJurisdiction choice.
+template PartyRegistry
+  with
+    platformOperator : Party
+    partyId : Party
+    role : OrgRole
+    kybVerificationId : Text
+    allocatedAt : Time
+    jurisdiction : Optional Text
+  where
+    signatory platformOperator
+
+    choice RegisterParty : ContractId PartyRegistry
+      with
+        newPartyId : Party
+        newRole : OrgRole
+        newKybVerificationId : Text
+      controller platformOperator
+      do
+        now <- getTime
+        create this with
+          partyId = newPartyId
+          role = newRole
+          kybVerificationId = newKybVerificationId
+          allocatedAt = now
+
+    choice UpdateJurisdiction : ContractId PartyRegistry
+      with
+        newJurisdiction : Text
+      controller platformOperator
+      do
+        create this with jurisdiction = Some newJurisdiction

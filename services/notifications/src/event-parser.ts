@@ -1,0 +1,90 @@
+import type { MeridianNotificationEvent } from "@meridian/shared-types";
+
+function str(v: unknown): string {
+  return v == null ? "" : String(v);
+}
+
+function activeBidCount(raw: unknown): number {
+  if (!raw || typeof raw !== "object") return 0;
+  const obj = raw as Record<string, unknown>;
+  const entries = (obj.map as unknown[] | undefined) ?? (Array.isArray(raw) ? raw : undefined);
+  return entries?.length ?? 0;
+}
+
+export function parseNotificationEvents(events: unknown[]): MeridianNotificationEvent[] {
+  const out: MeridianNotificationEvent[] = [];
+  for (const ev of events) {
+    if (!ev || typeof ev !== "object") continue;
+    const obj = ev as Record<string, unknown>;
+    const created =
+      (obj.CreatedEvent as Record<string, unknown> | undefined) ??
+      (obj.createdEvent as Record<string, unknown> | undefined);
+    if (!created) continue;
+
+    const templateId = String(created.templateId ?? "");
+    const contractId = String(created.contractId ?? "");
+    const args =
+      (created.createArgument as Record<string, unknown> | undefined) ??
+      (created.createArguments as Record<string, unknown> | undefined) ??
+      {};
+
+    if (templateId.includes("Receivable:Receivable") && !templateId.includes("Proposal")) {
+      out.push({
+        type: "receivable.issued",
+        receivableId: String(args.receivableId ?? args.proposalId ?? ""),
+        contractId,
+      });
+    }
+
+    if (templateId.includes("ReceivableProposal")) {
+      out.push({
+        type: "receivable.proposed",
+        proposalId: String(args.proposalId ?? ""),
+        contractId,
+      });
+    }
+
+    if (templateId.includes("AssignmentConsentPolicy")) {
+      out.push({
+        type: "consent.created",
+        masterAgreementId: String(args.masterAgreementId ?? ""),
+        contractId,
+      });
+    }
+
+    if (templateId.includes("FinancingRequest:FinancingRequest")) {
+      const requestId = str(args.requestId);
+      const roundState = str(args.roundState);
+      const bids = activeBidCount(args.activeBids);
+      const bidHistory = Array.isArray(args.bidHistory) ? args.bidHistory : [];
+
+      if (roundState === "RoundOpen" && bids === 0 && bidHistory.length === 0) {
+        out.push({ type: "round.opened", requestId, contractId });
+      } else if (roundState === "Paused" || roundState === "StaticReferenceFallback") {
+        out.push({ type: "round.paused", requestId, contractId });
+      } else if (roundState === "Awarded") {
+        const historyEntry = bidHistory.length > 0 ? str(bidHistory[0]) : "";
+        const winningBidCid = historyEntry.split(":")[2] ?? "";
+        out.push({
+          type: "round.awarded",
+          requestId,
+          contractId,
+          winningBidCid,
+        });
+      }
+    }
+
+    if (
+      templateId.includes("Financing.Bid:Bid") ||
+      (templateId.includes(":Bid:Bid") && templateId.includes("Financing"))
+    ) {
+      out.push({
+        type: "bid.submitted",
+        requestId: str(args.requestId),
+        bidContractId: contractId,
+        financier: str(args.financier),
+      });
+    }
+  }
+  return out;
+}

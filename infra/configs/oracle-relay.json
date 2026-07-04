@@ -1,0 +1,8 @@
+{
+  "dataServiceId": "redstone-primary-prod",
+  "uniqueSignersCount": 3,
+  "maxTimestampDeviationMs": 300000,
+  "maxAgeMs": 300000,
+  "referenceRateFeedId": "SOFR",
+  "feeds": ["SOFR", "USDC", "USDT", "EUR", "ETH"]
+}

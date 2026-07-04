@@ -1,0 +1,263 @@
+import Database from "better-sqlite3";
+import type {
+  BidComparisonRow,
+  BidSummary,
+  BuyerReceivableView,
+  ConsentPolicySummary,
+  FinancingRequestSummary,
+  InterfaceProjection,
+  ReceivableProposalSummary,
+  RoundState,
+  SupplierReceivableView,
+} from "@meridian/shared-types";
+import { rankBids, type BidComparisonOptions } from "./bid-comparison.js";
+
+/** Extended per-org store with interface-view projections. */
+export class ProjectionStore {
+  constructor(private db: Database.Database) {
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS interface_projections (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        contract_id TEXT NOT NULL,
+        interface_name TEXT NOT NULL,
+        party TEXT NOT NULL,
+        view_json TEXT NOT NULL,
+        offset TEXT NOT NULL,
+        archived INTEGER NOT NULL DEFAULT 0,
+        UNIQUE(contract_id, interface_name, party)
+      );
+      CREATE TABLE IF NOT EXISTS receivable_proposals (
+        contract_id TEXT PRIMARY KEY,
+        proposal_json TEXT NOT NULL,
+        offset TEXT NOT NULL,
+        archived INTEGER NOT NULL DEFAULT 0
+      );
+      CREATE TABLE IF NOT EXISTS consent_policies (
+        contract_id TEXT PRIMARY KEY,
+        policy_json TEXT NOT NULL,
+        offset TEXT NOT NULL,
+        archived INTEGER NOT NULL DEFAULT 0
+      );
+      CREATE TABLE IF NOT EXISTS financing_requests (
+        contract_id TEXT PRIMARY KEY,
+        request_id TEXT NOT NULL,
+        request_json TEXT NOT NULL,
+        offset TEXT NOT NULL,
+        archived INTEGER NOT NULL DEFAULT 0
+      );
+      CREATE TABLE IF NOT EXISTS bids (
+        contract_id TEXT PRIMARY KEY,
+        request_id TEXT NOT NULL,
+        bid_json TEXT NOT NULL,
+        offset TEXT NOT NULL,
+        archived INTEGER NOT NULL DEFAULT 0
+      );
+      CREATE INDEX IF NOT EXISTS idx_bids_request_id ON bids(request_id);
+    `);
+  }
+
+  upsertProjection(
+    projection: InterfaceProjection
+  ): void {
+    this.db
+      .prepare(
+        `INSERT INTO interface_projections (contract_id, interface_name, party, view_json, offset, archived)
+         VALUES (?, ?, ?, ?, ?, 0)
+         ON CONFLICT(contract_id, interface_name, party) DO UPDATE SET
+           view_json = excluded.view_json,
+           offset = excluded.offset,
+           archived = 0`
+      )
+      .run(
+        projection.contractId,
+        projection.interfaceName,
+        projection.party,
+        JSON.stringify(projection.viewJson),
+        projection.offset
+      );
+  }
+
+  archiveProjections(contractIds: string[]): void {
+    if (contractIds.length === 0) return;
+    const stmt = this.db.prepare(
+      `UPDATE interface_projections SET archived = 1 WHERE contract_id = ?`
+    );
+    for (const id of contractIds) stmt.run(id);
+  }
+
+  upsertProposal(proposal: ReceivableProposalSummary, offset: string): void {
+    this.db
+      .prepare(
+        `INSERT INTO receivable_proposals (contract_id, proposal_json, offset, archived)
+         VALUES (?, ?, ?, 0)
+         ON CONFLICT(contract_id) DO UPDATE SET
+           proposal_json = excluded.proposal_json,
+           offset = excluded.offset,
+           archived = 0`
+      )
+      .run(proposal.contractId, JSON.stringify(proposal), offset);
+  }
+
+  archiveProposals(contractIds: string[]): void {
+    if (contractIds.length === 0) return;
+    const stmt = this.db.prepare(
+      `UPDATE receivable_proposals SET archived = 1 WHERE contract_id = ?`
+    );
+    for (const id of contractIds) stmt.run(id);
+  }
+
+  upsertConsentPolicy(policy: ConsentPolicySummary, offset: string): void {
+    this.db
+      .prepare(
+        `INSERT INTO consent_policies (contract_id, policy_json, offset, archived)
+         VALUES (?, ?, ?, 0)
+         ON CONFLICT(contract_id) DO UPDATE SET
+           policy_json = excluded.policy_json,
+           offset = excluded.offset,
+           archived = 0`
+      )
+      .run(policy.contractId, JSON.stringify(policy), offset);
+  }
+
+  getBuyerObligations(): BuyerReceivableView[] {
+    const rows = this.db
+      .prepare(
+        `SELECT view_json FROM interface_projections
+         WHERE interface_name = 'IBuyerView' AND archived = 0`
+      )
+      .all() as Array<{ view_json: string }>;
+    return rows.map((r) => JSON.parse(r.view_json) as BuyerReceivableView);
+  }
+
+  getSupplierReceivables(): SupplierReceivableView[] {
+    const rows = this.db
+      .prepare(
+        `SELECT view_json FROM interface_projections
+         WHERE interface_name = 'ISupplierView' AND archived = 0`
+      )
+      .all() as Array<{ view_json: string }>;
+    return rows.map((r) => JSON.parse(r.view_json) as SupplierReceivableView);
+  }
+
+  getPendingProposals(): ReceivableProposalSummary[] {
+    const rows = this.db
+      .prepare(`SELECT proposal_json FROM receivable_proposals WHERE archived = 0`)
+      .all() as Array<{ proposal_json: string }>;
+    return rows.map((r) => JSON.parse(r.proposal_json) as ReceivableProposalSummary);
+  }
+
+  getConsentPolicies(): ConsentPolicySummary[] {
+    const rows = this.db
+      .prepare(`SELECT policy_json FROM consent_policies WHERE archived = 0`)
+      .all() as Array<{ policy_json: string }>;
+    return rows.map((r) => JSON.parse(r.policy_json) as ConsentPolicySummary);
+  }
+
+  upsertFinancingRequest(request: FinancingRequestSummary, offset: string): void {
+    this.db
+      .prepare(
+        `INSERT INTO financing_requests (contract_id, request_id, request_json, offset, archived)
+         VALUES (?, ?, ?, ?, 0)
+         ON CONFLICT(contract_id) DO UPDATE SET
+           request_id = excluded.request_id,
+           request_json = excluded.request_json,
+           offset = excluded.offset,
+           archived = 0`
+      )
+      .run(request.contractId, request.requestId, JSON.stringify(request), offset);
+  }
+
+  archiveFinancingRequests(contractIds: string[]): void {
+    if (contractIds.length === 0) return;
+    const stmt = this.db.prepare(
+      `UPDATE financing_requests SET archived = 1 WHERE contract_id = ?`
+    );
+    for (const id of contractIds) stmt.run(id);
+  }
+
+  upsertBid(bid: BidSummary, offset: string): void {
+    this.db
+      .prepare(
+        `INSERT INTO bids (contract_id, request_id, bid_json, offset, archived)
+         VALUES (?, ?, ?, ?, 0)
+         ON CONFLICT(contract_id) DO UPDATE SET
+           request_id = excluded.request_id,
+           bid_json = excluded.bid_json,
+           offset = excluded.offset,
+           archived = 0`
+      )
+      .run(bid.contractId, bid.requestId, JSON.stringify(bid), offset);
+  }
+
+  archiveBids(contractIds: string[]): void {
+    if (contractIds.length === 0) return;
+    const stmt = this.db.prepare(`UPDATE bids SET archived = 1 WHERE contract_id = ?`);
+    for (const id of contractIds) stmt.run(id);
+  }
+
+  getFinancingRounds(): FinancingRequestSummary[] {
+    const rows = this.db
+      .prepare(`SELECT request_json FROM financing_requests WHERE archived = 0`)
+      .all() as Array<{ request_json: string }>;
+    return rows.map((r) => JSON.parse(r.request_json) as FinancingRequestSummary);
+  }
+
+  getFinancingRequestByContractId(contractId: string): FinancingRequestSummary | null {
+    const row = this.db
+      .prepare(`SELECT request_json FROM financing_requests WHERE contract_id = ? AND archived = 0`)
+      .get(contractId) as { request_json: string } | undefined;
+    return row ? (JSON.parse(row.request_json) as FinancingRequestSummary) : null;
+  }
+
+  getBidsForRequestContract(requestContractId: string): BidSummary[] {
+    const request = this.getFinancingRequestByContractId(requestContractId);
+    if (!request) return [];
+    return this.getBidsByRequestId(request.requestId);
+  }
+
+  getBidsByRequestId(requestId: string): BidSummary[] {
+    const rows = this.db
+      .prepare(`SELECT bid_json FROM bids WHERE request_id = ? AND archived = 0`)
+      .all(requestId) as Array<{ bid_json: string }>;
+    return rows.map((r) => JSON.parse(r.bid_json) as BidSummary);
+  }
+
+  getBidComparison(
+    requestContractId: string,
+    options: BidComparisonOptions
+  ): BidComparisonRow[] {
+    const bids = this.getBidsForRequestContract(requestContractId);
+    return rankBids(bids, options);
+  }
+
+  getFinancierInvitations(): Array<{
+    contractId: string;
+    requestId: string;
+    supplier: string;
+    deadline: string;
+    pricingBandMin: string;
+    pricingBandMax: string;
+    roundState: RoundState;
+    creditProfileStub: string;
+  }> {
+    return this.getFinancingRounds().map((round) => ({
+      contractId: round.contractId,
+      requestId: round.requestId,
+      supplier: round.supplier,
+      deadline: round.deadline,
+      pricingBandMin: round.pricingBandMin,
+      pricingBandMax: round.pricingBandMax,
+      roundState: round.roundState,
+      creditProfileStub: `buyer-tier-${round.requestId.slice(-6).toLowerCase()}`,
+    }));
+  }
+
+  getFinancierMyBids(actingParty: string): BidSummary[] {
+    const rows = this.db
+      .prepare(`SELECT bid_json FROM bids WHERE archived = 0`)
+      .all() as Array<{ bid_json: string }>;
+    return rows
+      .map((r) => JSON.parse(r.bid_json) as BidSummary)
+      .filter((bid) => bid.financier === actingParty);
+  }
+}

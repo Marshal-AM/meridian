@@ -1,0 +1,23 @@
+{
+  "name": "@meridian/kyb-gateway",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js",
+    "test": "node --test dist/service.test.js",
+    "dev": "node --watch dist/index.js"
+  },
+  "dependencies": {
+    "@meridian/shared-types": "workspace:*",
+    "better-sqlite3": "^11.0.0",
+    "fastify": "^4.28.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.11",
+    "@types/node": "^20.14.0",
+    "typescript": "^5.5.0"
+  }
+}

@@ -1,0 +1,316 @@
+module Meridian.ReceivableTest where
+
+import Daml.Script
+import DA.Time
+import DA.Date
+import DA.Optional
+import DA.List (find)
+import Meridian.Receivable.Types
+import Meridian.Receivable.AssignmentConsentPolicy
+import Meridian.Receivable.Receivable
+import Meridian.Receivable.ReceivableProposal
+import Meridian.Receivable.Interfaces
+import Meridian.Financing.FinancingRequest
+import Meridian.Financing.FinancingRoundFactory
+import Meridian.Financing.Types
+import Meridian.FinancingFixtures
+
+sampleLineItems : [LineItem]
+sampleLineItems =
+  [ LineItem with
+      description = "Widget A"
+      quantity = 10.0
+      unitPrice = 100.0
+  , LineItem with
+      description = "Widget B"
+      quantity = 5.0
+      unitPrice = 200.0
+  ]
+
+sampleDueDate : Date
+sampleDueDate = date 2026 Dec 31
+
+lookupBuyerView : Party -> ContractId Receivable -> Script (Optional BuyerViewData)
+lookupBuyerView p receivableCid = do
+  rows <- queryInterface @IBuyerView p
+  let ifaceCid = toInterfaceContractId @IBuyerView receivableCid
+  pure (join (fmap snd (find (\(cid, _) -> cid == ifaceCid) rows)))
+
+lookupSupplierView : Party -> ContractId Receivable -> Script (Optional SupplierViewData)
+lookupSupplierView p receivableCid = do
+  rows <- queryInterface @ISupplierView p
+  let ifaceCid = toInterfaceContractId @ISupplierView receivableCid
+  pure (join (fmap snd (find (\(cid, _) -> cid == ifaceCid) rows)))
+
+-- | Happy path: supplier proposes, buyer co-signs, receivable issued.
+testJointIssuance : Script ()
+testJointIssuance = script do
+  supplier <- allocateParty "Supplier"
+  buyer <- allocateParty "Buyer"
+
+  proposalCid <- submit supplier do
+    createCmd ReceivableProposal with
+      proposalId = "INV-001"
+      supplier
+      buyer
+      lineItems = sampleLineItems
+      faceValue = 2000.0
+      currency = "USD"
+      dueDate = sampleDueDate
+      consentSource = InlineConsent True
+
+  receivableCid <- submit buyer do
+    exerciseCmd proposalCid CoSignAndIssue
+
+  Some receivable <- queryContractId supplier receivableCid
+  assert (receivable.state == Issued)
+  assert (receivable.assignmentConsentGranted)
+  assert (receivable.payeeOfRecord.payee == supplier)
+
+  buyerView <- lookupBuyerView buyer receivableCid
+  assert (isSome buyerView)
+  let Some bv = buyerView
+  assert (bv.faceValue == 2000.0)
+  assert (bv.payee == supplier)
+
+  pure ()
+
+-- | Consent inherited from master AssignmentConsentPolicy.
+testConsentPolicyInheritance : Script ()
+testConsentPolicyInheritance = script do
+  supplier <- allocateParty "Supplier"
+  buyer <- allocateParty "Buyer"
+  now <- getTime
+
+  policyCid <- submit buyer do
+    createCmd AssignmentConsentPolicy with
+      buyer
+      supplier
+      masterAgreementId = "MA-2026-001"
+      grantedAt = now
+      allowsAssignment = True
+
+  proposalCid <- submit supplier do
+    createCmd ReceivableProposal with
+      proposalId = "INV-002"
+      supplier
+      buyer
+      lineItems = sampleLineItems
+      faceValue = 2000.0
+      currency = "USD"
+      dueDate = sampleDueDate
+      consentSource = FromPolicy policyCid
+
+  receivableCid <- submit buyer do
+    exerciseCmd proposalCid CoSignAndIssue
+
+  Some receivable <- queryContractId buyer receivableCid
+  assert (receivable.assignmentConsentGranted)
+
+  pure ()
+
+-- | Consent denied when policy revoked.
+testConsentPolicyDenied : Script ()
+testConsentPolicyDenied = script do
+  supplier <- allocateParty "Supplier"
+  buyer <- allocateParty "Buyer"
+  now <- getTime
+
+  policyCid <- submit buyer do
+    createCmd AssignmentConsentPolicy with
+      buyer
+      supplier
+      masterAgreementId = "MA-2026-002"
+      grantedAt = now
+      allowsAssignment = False
+
+  proposalCid <- submit supplier do
+    createCmd ReceivableProposal with
+      proposalId = "INV-003"
+      supplier
+      buyer
+      lineItems = sampleLineItems
+      faceValue = 2000.0
+      currency = "USD"
+      dueDate = sampleDueDate
+      consentSource = FromPolicy policyCid
+
+  submitMustFail buyer do
+    exerciseCmd proposalCid CoSignAndIssue
+
+  pure ()
+
+-- | Lifecycle through financing award (Phase 2).
+testStateTransitions : Script ()
+testStateTransitions = script do
+  supplier <- allocateParty "Supplier"
+  buyer <- allocateParty "Buyer"
+  financier <- allocateParty "Financier"
+
+  proposalCid <- submit supplier do
+    createCmd ReceivableProposal with
+      proposalId = "INV-004"
+      supplier
+      buyer
+      lineItems = sampleLineItems
+      faceValue = 2000.0
+      currency = "USD"
+      dueDate = sampleDueDate
+      consentSource = InlineConsent True
+
+  cid <- submit buyer do
+    exerciseCmd proposalCid CoSignAndIssue
+
+  cid1 <- submit supplier do
+    exerciseCmd cid PostForBid
+
+  setTime sampleOracleLedgerTime
+  factoryCid <- submit supplier do createCmd FinancingRoundFactory with supplier
+  reqCid <- submit supplier do
+    exerciseCmd factoryCid OpenRound with
+      receivableCid = cid1
+      requestId = "ROUND-004"
+      financiers = [financier]
+      deadline = addRelTime sampleOracleLedgerTime (days 7)
+      pricingBandMin = 0.01
+      pricingBandMax = 0.15
+      redstoneFeedId = sofrFeedIdAscii
+
+  (reqCid1, bidCid) <- submit financier do
+    exerciseCmd reqCid SubmitBid with
+      financier
+      advanceAmount = 1800.0
+      discountRate = 0.05
+      redstonePayload = sampleSofrPayloadHex
+      redstoneTimestampMs = sampleRedstoneTimestampMs
+      mode = OracleAnchored
+      ledgerTime = sampleOracleLedgerTime
+
+  cid2 <- submit supplier do
+    exerciseCmd reqCid1 AwardBid with winningBidCid = bidCid
+
+  cid3 <- submit supplier do
+    exerciseCmd cid2 MarkPartiallySyndicated
+
+  cid4 <- submit buyer do
+    exerciseCmd cid3 MarkRepaid
+
+  Some final <- queryContractId supplier cid4
+  assert (final.state == Repaid)
+
+  pure ()
+
+-- | Invalid transition rejected at contract level.
+testInvalidTransition : Script ()
+testInvalidTransition = script do
+  supplier <- allocateParty "Supplier"
+  buyer <- allocateParty "Buyer"
+
+  proposalCid <- submit supplier do
+    createCmd ReceivableProposal with
+      proposalId = "INV-005"
+      supplier
+      buyer
+      lineItems = sampleLineItems
+      faceValue = 2000.0
+      currency = "USD"
+      dueDate = sampleDueDate
+      consentSource = InlineConsent True
+
+  cid <- submit buyer do
+    exerciseCmd proposalCid CoSignAndIssue
+
+  submitMustFail supplier do
+    exerciseCmd cid MarkPartiallySyndicated
+
+  pure ()
+
+-- | Financier cannot see receivable pre-invitation (not a stakeholder).
+testFinancierNoVisibility : Script ()
+testFinancierNoVisibility = script do
+  supplier <- allocateParty "Supplier"
+  buyer <- allocateParty "Buyer"
+  financier <- allocateParty "Financier"
+
+  proposalCid <- submit supplier do
+    createCmd ReceivableProposal with
+      proposalId = "INV-006"
+      supplier
+      buyer
+      lineItems = sampleLineItems
+      faceValue = 2000.0
+      currency = "USD"
+      dueDate = sampleDueDate
+      consentSource = InlineConsent True
+
+  receivableCid <- submit buyer do
+    exerciseCmd proposalCid CoSignAndIssue
+
+  financierContracts <- query @Receivable financier
+  assert (null financierContracts)
+
+  financierIfaces <- queryInterface @IFinancierView financier
+  assert (null financierIfaces)
+
+  pure ()
+
+-- | Supplier sees full economics; buyer interface view excludes line items.
+testInterfaceViewPrivacy : Script ()
+testInterfaceViewPrivacy = script do
+  supplier <- allocateParty "Supplier"
+  buyer <- allocateParty "Buyer"
+
+  proposalCid <- submit supplier do
+    createCmd ReceivableProposal with
+      proposalId = "INV-007"
+      supplier
+      buyer
+      lineItems = sampleLineItems
+      faceValue = 2000.0
+      currency = "USD"
+      dueDate = sampleDueDate
+      consentSource = InlineConsent True
+
+  receivableCid <- submit buyer do
+    exerciseCmd proposalCid CoSignAndIssue
+
+  supplierView <- lookupSupplierView supplier receivableCid
+  assert (isSome supplierView)
+  let Some sv = supplierView
+  assert (length sv.lineItems == 2)
+  assert (sv.buyer == buyer)
+
+  buyerView <- lookupBuyerView buyer receivableCid
+  assert (isSome buyerView)
+  let Some bv = buyerView
+  assert (bv.faceValue == 2000.0)
+  assert (bv.dueDate == sampleDueDate)
+
+  pure ()
+
+-- | v0.2.0 receivable defaults preserve Phase 1 field semantics after SCU upgrade path.
+testScuReceivableV010Compatibility : Script ()
+testScuReceivableV010Compatibility = script do
+  supplier <- allocateParty "Supplier"
+  buyer <- allocateParty "Buyer"
+
+  proposalCid <- submit supplier do
+    createCmd ReceivableProposal with
+      proposalId = "INV-SCU"
+      supplier
+      buyer
+      lineItems = sampleLineItems
+      faceValue = 2000.0
+      currency = "USD"
+      dueDate = sampleDueDate
+      consentSource = InlineConsent True
+
+  receivableCid <- submit buyer do exerciseCmd proposalCid CoSignAndIssue
+  Some receivable <- queryContractId supplier receivableCid
+  assert (receivable.jurisdiction == None)
+  assert (null receivable.invitedFinanciers)
+  assert (null receivable.syndicationCapTable)
+  assert (receivable.fundedPricingHidden == False)
+  assert (null receivable.bidHistory)
+
+  pure ()

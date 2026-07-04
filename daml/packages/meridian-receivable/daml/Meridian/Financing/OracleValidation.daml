@@ -1,0 +1,30 @@
+module Meridian.Financing.OracleValidation where
+
+import DA.Time
+import RedStone.Config (redstonePrimaryProdDefaultConfig)
+import RedStone.Processor (processPayloadNumeric)
+import RedStone.Result (Result(..))
+import RedStone.ProcessorTypes (DecimalValue)
+import Meridian.Financing.Types (validateBidAgainstBand)
+
+extractOracleRate : [Int] -> Text -> Time -> Update DecimalValue
+extractOracleRate feedIdAscii payloadHex ledgerTime = do
+  let config = redstonePrimaryProdDefaultConfig [feedIdAscii] ledgerTime
+  let (values, _timestampMs) = processPayloadNumeric config payloadHex
+  case values of
+    [] -> abort "Oracle payload returned no feed values"
+    (Ok rate :: _) -> pure rate
+    (Error err :: _) -> abort ("Oracle validation failed: " <> show err)
+    _ -> abort "Oracle payload missing reference rate"
+
+validateOracleAnchoredBid :
+  [Int]
+  -> Text
+  -> Time
+  -> Decimal
+  -> Decimal
+  -> Decimal
+  -> Update ()
+validateOracleAnchoredBid feedIdAscii payloadHex ledgerTime minRate maxRate discountRate = do
+  _referenceRate <- extractOracleRate feedIdAscii payloadHex ledgerTime
+  validateBidAgainstBand minRate maxRate discountRate

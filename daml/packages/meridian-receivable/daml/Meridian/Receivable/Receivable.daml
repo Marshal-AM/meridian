@@ -1,0 +1,133 @@
+module Meridian.Receivable.Receivable where
+
+import DA.Time
+import DA.Optional
+import Meridian.Receivable.Types
+import Meridian.Receivable.AssignmentConsentPolicy
+import Meridian.Receivable.Interfaces
+
+-- | Tokenized invoice jointly held by supplier and buyer (§7.1, §8.2).
+template Receivable
+  with
+    receivableId : Text
+    supplier : Party
+    buyer : Party
+    lineItems : [LineItem]
+    faceValue : Decimal
+    currency : Text
+    dueDate : Date
+    state : ReceivableState
+    consentSource : ConsentSource
+    assignmentConsentGranted : Bool
+    payeeOfRecord : PayeeOfRecord
+    jurisdiction : Optional Text
+    invitedFinanciers : [Party]
+    syndicationCapTable : [Text]
+    fundedPricingHidden : Bool
+    bidHistory : [Text]
+  where
+    signatory supplier, buyer
+
+    ensure
+      faceValue >= 0.0 && assignmentConsentGranted
+
+    interface instance IBuyerView for Receivable where
+      view =
+        BuyerViewData with
+          receivableId
+          payee = payeeOfRecord.payee
+          faceValue
+          currency
+          dueDate
+
+    interface instance ISupplierView for Receivable where
+      view =
+        SupplierViewData with
+          receivableId
+          buyer
+          lineItems
+          faceValue
+          currency
+          dueDate
+          state
+          consentSource
+          assignmentConsentGranted
+          payeeOfRecord
+          bidHistory
+
+    interface instance IFinancierView for Receivable where
+      view =
+        FinancierViewData with
+          receivableId
+          financier = supplier
+          invited = not (null invitedFinanciers)
+          faceValue = if null invitedFinanciers then None else Some faceValue
+          currency = if null invitedFinanciers then None else Some currency
+          dueDate = if null invitedFinanciers then None else Some dueDate
+
+    interface instance IRegulatorView for Receivable where
+      view =
+        RegulatorViewData with
+          receivableId
+          jurisdiction
+          aggregateExposure = faceValue
+
+    choice PostForBid : ContractId Receivable
+      controller supplier
+      do
+        assertMsg "Invalid transition: Issued -> PostedForBid" (state == Issued)
+        create this with state = PostedForBid
+
+    choice SetInvitedFinanciers : ContractId Receivable
+      with financiers : [Party]
+      controller supplier
+      do
+        assertMsg "Must be PostedForBid to invite financiers" (state == PostedForBid)
+        create this with invitedFinanciers = financiers
+
+    choice ApplyFunding : ContractId Receivable
+      with
+        financierPayee : Party
+        historyEntry : Text
+      controller supplier
+      do
+        assertMsg "Invalid transition: PostedForBid -> Funded" (state == PostedForBid)
+        create this with
+          state = Funded
+          payeeOfRecord = PayeeOfRecord with
+            payee = financierPayee
+            payeeRole = "Financier"
+          fundedPricingHidden = True
+          bidHistory = historyEntry :: bidHistory
+
+    -- | SCU-compatible alias retained from v0.1.0 (Phase 1 direct funding).
+    choice MarkFunded : ContractId Receivable
+      with financierPayee : Party
+      controller supplier
+      do
+        assertMsg "Invalid transition: PostedForBid -> Funded" (state == PostedForBid)
+        create this with
+          state = Funded
+          payeeOfRecord = PayeeOfRecord with
+            payee = financierPayee
+            payeeRole = "Financier"
+          fundedPricingHidden = True
+          bidHistory = "legacy-mark-funded" :: bidHistory
+
+    choice MarkPartiallySyndicated : ContractId Receivable
+      controller supplier
+      do
+        assertMsg "Invalid transition: Funded -> PartiallySyndicated" (state == Funded)
+        create this with state = PartiallySyndicated
+
+    choice MarkRepaid : ContractId Receivable
+      controller buyer
+      do
+        assertMsg "Invalid transition to Repaid" (state == Funded || state == PartiallySyndicated)
+        create this with state = Repaid
+
+    choice MarkDefaulted : ContractId Receivable
+      controller supplier
+      do
+        assertMsg "Invalid transition to Defaulted" (state == Funded || state == PartiallySyndicated)
+        create this with state = Defaulted

@@ -1,0 +1,12 @@
+sdk-version: 3.4.11
+name: com-meridian-receivable-v2
+version: 0.1.0
+source: daml
+dependencies:
+  - daml-prim
+  - daml-stdlib
+data-dependencies:
+  - ../../vendor/redstone/dist/redstone-sdk-v19-0.4.0.dar
+build-options:
+  - --target=2.1
+  - -Wno-upgrade-interfaces

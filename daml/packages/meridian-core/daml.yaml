@@ -1,0 +1,10 @@
+sdk-version: 3.4.11
+name: com-meridian-core
+version: 0.2.0
+source: daml
+dependencies:
+  - daml-prim
+  - daml-stdlib
+upgrades: ../meridian-core-v010/.daml/dist/com-meridian-core-0.1.0.dar
+build-options:
+  - --target=2.1

@@ -1,0 +1,25 @@
+{
+  "name": "@meridian/notifications",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "bin": {
+    "meridian-notifications": "./dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/cli.js",
+    "test": "node --test dist/event-parser.test.js"
+  },
+  "dependencies": {
+    "@meridian/devnet-auth": "workspace:*",
+    "@meridian/shared-types": "workspace:*",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "@types/ws": "^8.5.12",
+    "typescript": "^5.5.0"
+  }
+}

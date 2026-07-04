@@ -1,0 +1,39 @@
+module Meridian.Financing.Types where
+
+import DA.Time
+
+data RoundState
+  = RoundOpen
+  | Paused
+  | StaticReferenceFallback
+  | Awarded
+  | Expired
+  deriving (Eq, Show)
+
+data BidPricingMode
+  = OracleAnchored
+  | StaticReference
+  deriving (Eq, Show)
+
+-- | SOFR feed id as ASCII bytes: S O F R
+sofrFeedIdAscii : [Int]
+sofrFeedIdAscii = [83, 79, 70, 82]
+
+assertRoundOpen : RoundState -> Update ()
+assertRoundOpen RoundOpen = pure ()
+assertRoundOpen _ = abort "Financing round is not open"
+
+assertBeforeDeadline : Time -> Update ()
+assertBeforeDeadline deadline = do
+  now <- getTime
+  assertMsg "Financing round deadline has passed" (now <= deadline)
+
+validateBidAgainstBand : Decimal -> Decimal -> Decimal -> Update ()
+validateBidAgainstBand minRate maxRate discountRate =
+  assertMsg "Bid discount rate outside pricing band" (discountRate >= minRate && discountRate <= maxRate)
+
+effectiveRateNormalized : Decimal -> Decimal -> Decimal
+effectiveRateNormalized referenceRate discountRate = referenceRate + discountRate
+
+reportIdFromTimestamp : Int -> Text
+reportIdFromTimestamp ts = "redstone-" <> show ts

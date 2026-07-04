@@ -1,0 +1,274 @@
+/** Organizational roles matching on-ledger OrgRole (Phase 0). */
+export type OrgRole =
+  | "PlatformOperator"
+  | "Supplier"
+  | "Buyer"
+  | "Financier"
+  | "Registry"
+  | "OracleProvider"
+  | "Regulator";
+
+export type KybStatus = "APPROVED" | "REJECTED" | "PENDING";
+
+export interface KybVerifyRequest {
+  legalEntityId: string;
+  jurisdiction: string;
+  requestedRoles: OrgRole[];
+}
+
+export interface KybVerifyResponse {
+  status: KybStatus;
+  verificationId: string;
+  verifiedAt?: string;
+  reason?: string;
+}
+
+export interface PartyAllocationRequest {
+  legalEntityId: string;
+  partyHint: string;
+  role: OrgRole;
+  jurisdiction: string;
+  verificationId: string;
+  /** DevNet: shared Seaport validator (optional). */
+  participantId?: string;
+  /** LocalNet legacy — unused on DevNet. */
+  synchronizerIds?: string[];
+}
+
+export interface PartyAllocationRecord {
+  orgId: string;
+  partyHint: string;
+  partyId: string;
+  role: OrgRole;
+  verificationId: string;
+  topologyTxId: string;
+  participantId: string;
+  synchronizerIds: string[];
+  allocatedAt: string;
+}
+
+/** DevNet persona entry — single source of truth in parties.devnet.json. */
+export interface DevNetPersonaEntry {
+  orgId: string;
+  role: OrgRole;
+  partyHint: string;
+  partyId: string;
+  displayName: string;
+  allocatedAt?: string;
+}
+
+export interface DevNetPartiesManifest {
+  environment: "seaport-devnet";
+  validatorId: string;
+  ledgerApiUrl: string;
+  generatedAt: string;
+  personas: DevNetPersonaEntry[];
+}
+
+export interface DevNetConfig {
+  ledgerApiUrl: string;
+  ledgerWsUrl: string;
+  authUrl: string;
+  clientId: string;
+  clientSecret: string;
+  audience: string;
+  scope: string;
+}
+
+export interface SeaportConfig {
+  ledgerApiUrl: string;
+  ledgerWsUrl: string;
+  authUrl: string;
+  clientId: string;
+  audience: string;
+  scope: string;
+  validatorId: string;
+}
+
+/** @deprecated LocalNet-only manifest — use DevNetPartiesManifest on Seaport. */
+export interface PersonaManifestEntry {
+  role: OrgRole;
+  partyHint: string;
+  partyId: string;
+  participantId: string;
+  participantHost: string;
+  ledgerApiPort: number;
+  jsonApiPort: number;
+  synchronizerIds: string[];
+}
+
+/** @deprecated LocalNet-only manifest. */
+export interface PartiesManifest {
+  generatedAt: string;
+  synchronizers: { id: string; alias: string }[];
+  personas: PersonaManifestEntry[];
+}
+
+export interface IndexerConfig {
+  orgId: string;
+  actingParty: string;
+  role: "Supplier" | "Buyer" | "Financier";
+  jsonApiUrl: string;
+  /** Auth loaded from env via devnet-auth when omitted. */
+  ledgerHost?: string;
+  ledgerPort?: number;
+  oauthTokenUrl?: string;
+  oauthClientId?: string;
+  oauthClientSecret?: string;
+  dataDir: string;
+  rebuild: boolean;
+  /** HTTP read API port when running in serve mode. */
+  httpPort?: number;
+  /** Poll interval ms for serve mode. */
+  pollIntervalMs?: number;
+}
+
+export interface RawLedgerEvent {
+  offset: string;
+  updateId: string;
+  recordTime: string;
+  payload: unknown;
+}
+
+export interface IndexerCheckpoint {
+  lastOffset: string;
+  eventCount: number;
+  lastEventHash: string;
+  updatedAt: string;
+}
+
+/** Receivable lifecycle state (§8.2). */
+export type ReceivableState =
+  | "Issued"
+  | "PostedForBid"
+  | "Funded"
+  | "PartiallySyndicated"
+  | "Repaid"
+  | "Defaulted";
+
+/** Buyer-scoped IBuyerView projection. */
+export interface BuyerReceivableView {
+  contractId: string;
+  receivableId: string;
+  payee: string;
+  faceValue: string;
+  currency: string;
+  dueDate: string;
+}
+
+/** Supplier-scoped ISupplierView projection. */
+export interface SupplierReceivableView {
+  contractId: string;
+  receivableId: string;
+  buyer: string;
+  lineItems: Array<{ description: string; quantity: string; unitPrice: string }>;
+  faceValue: string;
+  currency: string;
+  dueDate: string;
+  state: ReceivableState;
+  assignmentConsentGranted: boolean;
+  payeeOfRecord: { payee: string; payeeRole: string };
+}
+
+export interface ConsentPolicySummary {
+  contractId: string;
+  buyer: string;
+  supplier: string;
+  masterAgreementId: string;
+  grantedAt: string;
+  allowsAssignment: boolean;
+}
+
+export interface ReceivableProposalSummary {
+  contractId: string;
+  proposalId: string;
+  supplier: string;
+  buyer: string;
+  faceValue: string;
+  currency: string;
+  dueDate: string;
+}
+
+/** Financing round lifecycle state (§8.2). */
+export type RoundState =
+  | "RoundOpen"
+  | "Paused"
+  | "StaticReferenceFallback"
+  | "Awarded"
+  | "Expired";
+
+/** Bid pricing anchor mode — oracle-anchored or static reference fallback. */
+export type BidPricingMode = "OracleAnchored" | "StaticReference";
+
+/** Supplier-scoped financing round projection. */
+export interface FinancingRequestSummary {
+  contractId: string;
+  requestId: string;
+  receivableCid: string;
+  supplier: string;
+  invitedFinanciers: string[];
+  deadline: string;
+  pricingBandMin: string;
+  pricingBandMax: string;
+  redstoneFeedId: number[];
+  roundState: RoundState;
+  activeBidCount: number;
+  bidHistory: string[];
+}
+
+/** Supplier or owning-financier bid projection. */
+export interface BidSummary {
+  contractId: string;
+  requestId: string;
+  financier: string;
+  supplier: string;
+  advanceAmount: string;
+  discountRate: string;
+  reportId: string;
+  mode: BidPricingMode;
+  redstoneTimestampMs: number;
+  ledgerTime: string;
+}
+
+/** Supplier bid-comparison row with oracle-normalized effective rate (§9.1). */
+export interface BidComparisonRow {
+  bidContractId: string;
+  financier: string;
+  advanceAmount: string;
+  discountRate: string;
+  effectiveRate: string;
+  reportId: string;
+  mode: BidPricingMode;
+  oracleFresh: boolean;
+  rank: number;
+}
+
+/** Notification events pushed to portal subscribers. */
+export type MeridianNotificationEvent =
+  | { type: "receivable.issued"; receivableId: string; contractId: string }
+  | { type: "receivable.proposed"; proposalId: string; contractId: string }
+  | { type: "consent.created"; masterAgreementId: string; contractId: string }
+  | { type: "round.opened"; requestId: string; contractId: string }
+  | { type: "bid.submitted"; requestId: string; bidContractId: string; financier: string }
+  | {
+      type: "round.awarded";
+      requestId: string;
+      contractId: string;
+      winningBidCid: string;
+    }
+  | { type: "round.paused"; requestId: string; contractId: string };
+
+export interface InterfaceProjection {
+  contractId: string;
+  interfaceName: string;
+  party: string;
+  viewJson: unknown;
+  offset: string;
+  archived: boolean;
+}
+
+export type {
+  OracleRelayConfig,
+  FeedSnapshot,
+  FetchResult,
+} from "@meridian/oracle-feeds";

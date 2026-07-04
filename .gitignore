@@ -1,0 +1,56 @@
+# Daml
+.daml/
+*.dar
+
+# Node
+node_modules/
+dist/
+*.tsbuildinfo
+
+# Generated bindings
+packages/generated/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Indexer data (per-org isolated stores)
+services/indexer/data/
+*.db
+*.sqlite
+
+# KYB / provisioner audit (local dev)
+services/kyb-gateway/data/
+services/party-provisioner/data/
+
+# Infra manifests
+# parties.devnet.json is version-controlled (DevNet source of truth)
+infra/manifests/parties.json
+*.log
+logs/
+
+# Test coverage
+coverage/
+
+# Legacy LocalNet (removed — safe to delete if still on disk)
+infra/cn-quickstart/
+infra/localnet/
+
+# Local tooling (DPM install, temp downloads)
+.tools/
+
+# RedStone sparse clone (DARs built into vendor/redstone/dist via build-redstone-dars.sh)
+daml/vendor/redstone/redstone-oracles-monorepo/
+
+# Logs

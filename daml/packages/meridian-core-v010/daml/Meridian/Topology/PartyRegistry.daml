@@ -1,0 +1,39 @@
+module Meridian.Topology.PartyRegistry where
+
+import DA.Time
+
+-- | Organizational role hosted on a distinct participant node.
+data OrgRole
+  = PlatformOperator
+  | Supplier
+  | Buyer
+  | Financier
+  | Registry
+  | OracleProvider
+  deriving (Eq, Show)
+
+-- | On-ledger audit anchor for KYB-gated party allocation (Phase 0).
+-- | Signed by Platform Operator; records topology provisioning metadata.
+template PartyRegistry
+  with
+    platformOperator : Party
+    partyId : Party
+    role : OrgRole
+    kybVerificationId : Text
+    allocatedAt : Time
+  where
+    signatory platformOperator
+
+    choice RegisterParty : ContractId PartyRegistry
+      with
+        newPartyId : Party
+        newRole : OrgRole
+        newKybVerificationId : Text
+      controller platformOperator
+      do
+        now <- getTime
+        create this with
+          partyId = newPartyId
+          role = newRole
+          kybVerificationId = newKybVerificationId
+          allocatedAt = now
