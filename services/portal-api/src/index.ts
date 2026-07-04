@@ -20,7 +20,17 @@ import {
   buildRepayWithProofCommand,
   buildMarkOverdueCommand,
   buildAdvanceAllocationCommand,
+  buildCreateSyndicationFactoryCommand,
+  buildOpenSyndicationOfferingCommand,
+  buildSubmitSyndicationBidCommand,
+  buildReplaceSyndicationBidCommand,
+  buildAwardSyndicationBidCommand,
+  buildPauseSyndicationRoundCommand,
+  buildSyndicationStaticFallbackCommand,
+  buildExpireSyndicationRoundCommand,
   extractAllocationCid,
+  computeWaterfall,
+  buildWaterfallAllocations,
   CIP56_INTERFACES,
   CASH,
   oracleAnchoredMode,
@@ -45,6 +55,7 @@ loadDotenv({ path: join(ROOT, ".env") });
 const PORT = Number(process.env.PORTAL_API_PORT ?? 4000);
 const SUPPLIER_INDEXER = process.env.SUPPLIER_INDEXER_URL ?? "http://127.0.0.1:4011";
 const FINANCIER_INDEXER = process.env.FINANCIER_INDEXER_URL ?? "http://127.0.0.1:4013";
+const FINANCIER_INDEXER_B = process.env.FINANCIER_INDEXER_B_URL ?? "http://127.0.0.1:4014";
 const ORACLE_RELAY = process.env.ORACLE_RELAY_URL ?? "http://127.0.0.1:4021";
 const REGISTRY_API = process.env.REGISTRY_API_URL ?? "http://127.0.0.1:4022";
 
@@ -76,6 +87,88 @@ function financingRequestId(pathname: string, suffix?: string): string | null {
     return null;
   }
   return id;
+}
+
+function syndicationOfferingId(pathname: string, suffix?: string): string | null {
+  const parts = pathname.split("/").filter(Boolean);
+  if (parts[0] !== "syndication" || !parts[1] || parts[1] === "open") return null;
+  const id = decodeURIComponent(parts[1]);
+  if (suffix) {
+    if (parts[2] !== suffix) return null;
+  } else if (parts.length > 2) {
+    return null;
+  }
+  return id;
+}
+
+function parseCapTableEntries(raw: unknown): Array<{ participant: string; shareBps: number }> {
+  if (!Array.isArray(raw)) return [];
+  return raw.map((entry) => {
+    const e = entry as Record<string, unknown>;
+    return {
+      participant: String(e.participant ?? ""),
+      shareBps: Number(e.shareBps ?? 0),
+    };
+  });
+}
+
+async function findOrCreateSyndicationFactory(
+  client: Awaited<ReturnType<DevNetAuthClient["createAuthenticatedLedgerClient"]>>,
+  leadFinancier: string
+): Promise<string> {
+  const factories = await client.getActiveContractsByTemplate(
+    leadFinancier,
+    TEMPLATE_IDS.syndicationFactory
+  );
+  if (factories.length > 0) {
+    return factories[0]!.contractId;
+  }
+  const cmd = buildCreateSyndicationFactoryCommand({ leadFinancier });
+  const result = await client.submitAndWaitForTransaction({
+    actAs: [leadFinancier],
+    commands: [cmd],
+  });
+  const factoryId = extractCreatedContractId(result);
+  if (!factoryId) throw new Error("syndication factory creation did not return contract id");
+  return factoryId;
+}
+
+async function fetchReceivablePayload(
+  client: Awaited<ReturnType<DevNetAuthClient["createAuthenticatedLedgerClient"]>>,
+  supplierPartyId: string,
+  receivableCid: string
+): Promise<Record<string, unknown> | null> {
+  const rows = await client.getActiveContractsByTemplate(
+    supplierPartyId,
+    TEMPLATE_IDS.receivable
+  );
+  const row = rows.find((r) => r.contractId === receivableCid);
+  return (row?.payload as Record<string, unknown> | undefined) ?? null;
+}
+
+async function resolveSyndicationOfferingCid(
+  client: Awaited<ReturnType<DevNetAuthClient["createAuthenticatedLedgerClient"]>>,
+  lead: string,
+  offeringContractId: string,
+  offeringId?: string
+): Promise<string> {
+  const rows = await client.getActiveContractsByTemplate(lead, TEMPLATE_IDS.syndicationOffering);
+  const direct = rows.find((r) => r.contractId === offeringContractId);
+  if (direct) return offeringContractId;
+  if (offeringId) {
+    const byBusinessId = rows.find(
+      (r) => String((r.payload as Record<string, unknown>).offeringId) === offeringId
+    );
+    if (byBusinessId) return byBusinessId.contractId;
+  }
+  const openRounds = rows.filter((r) => {
+    const state = String((r.payload as Record<string, unknown>).roundState ?? "");
+    return state === "RoundOpen" || state === "StaticReferenceFallback";
+  });
+  if (openRounds.length === 1) return openRounds[0]!.contractId;
+  throw new Error(
+    "syndication offering contract id is stale — refresh offerings after bid submission"
+  );
 }
 
 async function fetchOracleFeed(): Promise<FetchResult> {
@@ -186,6 +279,47 @@ async function handleRequest(
 
     if (req.method === "GET" && url.pathname === "/financier/my-bids") {
       const data = await proxyGet(`${FINANCIER_INDEXER}/financier/my-bids`);
+      json(res, 200, data);
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/financier/syndication/offerings") {
+      const data = await proxyGet(`${FINANCIER_INDEXER}/financier/syndication/offerings`);
+      json(res, 200, data);
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/financier/syndication/invitations") {
+      const data = await proxyGet(`${FINANCIER_INDEXER_B}/financier/syndication/invitations`);
+      json(res, 200, data);
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/financier/syndication/my-interests") {
+      const tab = url.searchParams.get("tab");
+      const base =
+        tab === "lead" ? FINANCIER_INDEXER : FINANCIER_INDEXER_B;
+      const data = await proxyGet(`${base}/financier/syndication/my-interests`);
+      json(res, 200, data);
+      return;
+    }
+
+    const capTablePath = url.pathname.match(/^\/financier\/syndication\/cap-table\/([^/]+)$/);
+    if (req.method === "GET" && capTablePath) {
+      const receivableId = decodeURIComponent(capTablePath[1]!);
+      const data = await proxyGet(
+        `${FINANCIER_INDEXER}/financier/syndication/cap-table/${encodeURIComponent(receivableId)}`
+      );
+      json(res, 200, data);
+      return;
+    }
+
+    const syndicationBidsPath = url.pathname.match(/^\/financier\/syndication\/bids\/([^/]+)$/);
+    if (req.method === "GET" && syndicationBidsPath) {
+      const offeringId = decodeURIComponent(syndicationBidsPath[1]!);
+      const data = await proxyGet(
+        `${FINANCIER_INDEXER}/financier/syndication/bids/${encodeURIComponent(offeringId)}`
+      );
       json(res, 200, data);
       return;
     }
@@ -442,64 +576,97 @@ async function handleRequest(
         settlementRef?: string;
       };
       const cash = loadCashManifest(ROOT);
-      const amount = body.faceValue ?? "2000.0";
-      const payee = body.payeePartyId ?? parties.financierA.partyId;
+      const receivablePayload = await fetchReceivablePayload(
+        client,
+        parties.supplier.partyId,
+        receivableCid
+      );
+      const amount = body.faceValue ?? String(receivablePayload?.faceValue ?? "2000.0");
+      const payee =
+        body.payeePartyId ??
+        String(
+          (receivablePayload?.payeeOfRecord as Record<string, unknown> | undefined)?.payee ??
+            parties.financierA.partyId
+        );
+      const state = String(receivablePayload?.state ?? "");
+      const capTable = parseCapTableEntries(receivablePayload?.capTable);
       const now = new Date().toISOString();
       const weekLater = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
       const twoWeeks = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString();
 
-      const buyerHoldingRows = await client.getActiveContractsByTemplate(
-        parties.buyer.partyId,
-        CASH.musdHolding
-      );
-      const buyerHoldingCids = buyerHoldingRows
-        .filter((h) => {
-          const p = h.payload as {
-            holding?: { instrumentId?: { id?: string; admin?: string }; lock?: unknown };
-          };
-          return (
-            p.holding?.instrumentId?.id === "MUSD" &&
-            p.holding?.instrumentId?.admin === cash.registryAdminPartyId &&
-            !p.holding?.lock
-          );
-        })
-        .map((h) => h.contractId);
-      if (buyerHoldingCids.length === 0) {
-        json(res, 400, { error: "buyer has no MUSD holdings" });
-        return;
-      }
+      let allocationCids: string[];
+      let syndicationParticipants: string[] = [];
 
-      const allocResult = await client.submitAndWaitForTransaction({
-        actAs: [parties.buyer.partyId, cash.registryAdminPartyId],
-        commands: [
-          buildAdvanceAllocationCommand({
-            rulesContractId: cash.rulesContractId,
-            registryAdmin: cash.registryAdminPartyId,
-            executor: parties.supplier.partyId,
-            financier: parties.buyer.partyId,
-            supplier: payee,
-            advanceAmount: amount,
-            inputHoldingCids: buyerHoldingCids,
-            requestedAt: now,
-            allocateBefore: weekLater,
-            settleBefore: twoWeeks,
-          }),
-        ],
-      });
-      const allocationCid = extractAllocationCid(allocResult);
-      if (!allocationCid) {
-        json(res, 500, { error: "repayment allocation failed" });
-        return;
+      if (state === "PartiallySyndicated" && capTable.length > 0) {
+        const faceValueNum = Number(amount);
+        const recipients = computeWaterfall(faceValueNum, capTable, payee);
+        allocationCids = await buildWaterfallAllocations(client, {
+          rulesContractId: cash.rulesContractId,
+          registryAdmin: cash.registryAdminPartyId,
+          executor: parties.supplier.partyId,
+          buyer: parties.buyer.partyId,
+          recipients,
+          requestedAt: now,
+          allocateBefore: weekLater,
+          settleBefore: twoWeeks,
+        });
+        syndicationParticipants = capTable.map((e) => e.participant);
+      } else {
+        const buyerHoldingRows = await client.getActiveContractsByTemplate(
+          parties.buyer.partyId,
+          CASH.musdHolding
+        );
+        const buyerHoldingCids = buyerHoldingRows
+          .filter((h) => {
+            const p = h.payload as {
+              holding?: { instrumentId?: { id?: string; admin?: string }; lock?: unknown };
+            };
+            return (
+              p.holding?.instrumentId?.id === "MUSD" &&
+              p.holding?.instrumentId?.admin === cash.registryAdminPartyId &&
+              !p.holding?.lock
+            );
+          })
+          .map((h) => h.contractId);
+        if (buyerHoldingCids.length === 0) {
+          json(res, 400, { error: "buyer has no MUSD holdings" });
+          return;
+        }
+
+        const allocResult = await client.submitAndWaitForTransaction({
+          actAs: [parties.buyer.partyId, cash.registryAdminPartyId],
+          commands: [
+            buildAdvanceAllocationCommand({
+              rulesContractId: cash.rulesContractId,
+              registryAdmin: cash.registryAdminPartyId,
+              executor: parties.supplier.partyId,
+              financier: parties.buyer.partyId,
+              supplier: payee,
+              advanceAmount: amount,
+              inputHoldingCids: buyerHoldingCids,
+              requestedAt: now,
+              allocateBefore: weekLater,
+              settleBefore: twoWeeks,
+            }),
+          ],
+        });
+        const allocationCid = extractAllocationCid(allocResult);
+        if (!allocationCid) {
+          json(res, 500, { error: "repayment allocation failed" });
+          return;
+        }
+        allocationCids = [allocationCid];
       }
 
       const result = await client.submitAndWaitForTransaction({
-        actAs: [parties.buyer.partyId, payee, parties.supplier.partyId],
+        actAs: [parties.buyer.partyId, payee, parties.supplier.partyId, ...syndicationParticipants],
         commands: [
           buildRepayWithProofCommand({
             receivableContractId: receivableCid,
-            settlementAllocationCid: allocationCid,
+            settlementAllocationCids: allocationCids,
             expectedAmount: amount,
             settlementRef: body.settlementRef ?? `repay-${Date.now()}`,
+            syndicationParticipants,
           }),
         ],
       });
@@ -507,6 +674,7 @@ async function handleRequest(
       json(res, 200, {
         receivableContractId: extractCreatedContractId(result, "Receivable"),
         proofContractId: extractCreatedContractId(result, "RepaymentProof"),
+        settlementAllocationCids: allocationCids,
         transaction: result.transaction?.updateId,
       });
       return;
@@ -647,6 +815,237 @@ async function handleRequest(
 
       json(res, 200, {
         bidContractId: extractCreatedContractId(result),
+        oracleFresh: oracle.isFresh,
+        transaction: result.transaction?.updateId,
+      });
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/syndication/open") {
+      const body = (await readBody(req)) as {
+        receivableCid?: string;
+        offeringId?: string;
+        participants?: string[];
+        deadline?: string;
+        pricingBandMin?: string;
+        pricingBandMax?: string;
+        redstoneFeedId?: number[];
+        leadFinancierPartyId?: string;
+      };
+
+      if (!body.receivableCid) {
+        json(res, 400, { error: "receivableCid required" });
+        return;
+      }
+
+      const lead = body.leadFinancierPartyId ?? parties.financierA.partyId;
+      const factoryId = await findOrCreateSyndicationFactory(client, lead);
+      const defaultParticipants = [parties.financierB.partyId];
+      const feedId =
+        body.redstoneFeedId ?? "SOFR".split("").map((ch) => ch.charCodeAt(0));
+
+      const cmd = buildOpenSyndicationOfferingCommand({
+        factoryContractId: factoryId,
+        receivableCid: body.receivableCid,
+        offeringId: body.offeringId ?? `SYN-${Date.now()}`,
+        participants: body.participants ?? defaultParticipants,
+        deadline: body.deadline ?? new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+        pricingBandMin: body.pricingBandMin ?? "0.01",
+        pricingBandMax: body.pricingBandMax ?? "0.15",
+        redstoneFeedId: feedId,
+      });
+
+      const result = await client.submitAndWaitForTransaction({
+        actAs: [lead],
+        commands: [cmd],
+      });
+
+      json(res, 201, {
+        contractId: extractCreatedContractId(result),
+        transaction: result.transaction?.updateId,
+      });
+      return;
+    }
+
+    const syndicationAwardId = syndicationOfferingId(url.pathname, "award");
+    if (req.method === "POST" && syndicationAwardId) {
+      const body = (await readBody(req)) as {
+        winningBidCid?: string;
+        winningParticipant?: string;
+        leadFinancierPartyId?: string;
+        offeringId?: string;
+      };
+      if (!body.winningBidCid) {
+        json(res, 400, { error: "winningBidCid required" });
+        return;
+      }
+
+      const lead = body.leadFinancierPartyId ?? parties.financierA.partyId;
+      const winningParticipant = body.winningParticipant ?? parties.financierB.partyId;
+      const offeringCid = await resolveSyndicationOfferingCid(
+        client,
+        lead,
+        syndicationAwardId,
+        body.offeringId
+      );
+
+      const result = await client.submitAndWaitForTransaction({
+        actAs: [lead, winningParticipant],
+        commands: [
+          buildAwardSyndicationBidCommand({
+            offeringContractId: offeringCid,
+            winningBidCid: body.winningBidCid,
+            winningParticipant,
+          }),
+        ],
+      });
+
+      json(res, 200, {
+        receivableContractId: extractCreatedContractId(result, "Receivable"),
+        participationInterestCid: extractCreatedContractId(result, "ParticipationInterest"),
+        transaction: result.transaction?.updateId,
+      });
+      return;
+    }
+
+    const syndicationPauseId = syndicationOfferingId(url.pathname, "pause");
+    if (req.method === "POST" && syndicationPauseId) {
+      const lead = parties.financierA.partyId;
+      const result = await client.submitAndWaitForTransaction({
+        actAs: [lead],
+        commands: [buildPauseSyndicationRoundCommand(syndicationPauseId)],
+      });
+      json(res, 200, {
+        contractId: extractCreatedContractId(result),
+        transaction: result.transaction?.updateId,
+      });
+      return;
+    }
+
+    const syndicationFallbackId = syndicationOfferingId(url.pathname, "static-fallback");
+    if (req.method === "POST" && syndicationFallbackId) {
+      const lead = parties.financierA.partyId;
+      const result = await client.submitAndWaitForTransaction({
+        actAs: [lead],
+        commands: [buildSyndicationStaticFallbackCommand(syndicationFallbackId)],
+      });
+      json(res, 200, {
+        contractId: extractCreatedContractId(result),
+        transaction: result.transaction?.updateId,
+      });
+      return;
+    }
+
+    const syndicationExpireId = syndicationOfferingId(url.pathname, "expire");
+    if (req.method === "POST" && syndicationExpireId) {
+      const lead = parties.financierA.partyId;
+      const result = await client.submitAndWaitForTransaction({
+        actAs: [lead],
+        commands: [buildExpireSyndicationRoundCommand(syndicationExpireId)],
+      });
+      json(res, 200, {
+        contractId: extractCreatedContractId(result),
+        transaction: result.transaction?.updateId,
+      });
+      return;
+    }
+
+    const syndicationBidId = syndicationOfferingId(url.pathname, "bid");
+    if (req.method === "POST" && syndicationBidId) {
+      const body = (await readBody(req)) as {
+        shareBps?: number;
+        discountRate?: string;
+        useStaticReference?: boolean;
+        participantPartyId?: string;
+      };
+
+      if (body.shareBps == null || !body.discountRate) {
+        json(res, 400, { error: "shareBps and discountRate required" });
+        return;
+      }
+
+      const participant = body.participantPartyId ?? parties.financierB.partyId;
+      const oracle = await fetchOracleFeed();
+      const mode = body.useStaticReference ? staticReferenceMode() : oracleAnchoredMode();
+      const ledgerTime = new Date(oracle.packageTimestampMs).toISOString();
+
+      const cmd = buildSubmitSyndicationBidCommand({
+        offeringContractId: syndicationBidId,
+        participant,
+        shareBps: body.shareBps,
+        discountRate: body.discountRate,
+        redstonePayload: oracle.canton.payloadHex,
+        redstoneTimestampMs: oracle.packageTimestampMs,
+        mode,
+        ledgerTime,
+      });
+
+      const result = await client.submitAndWaitForTransaction({
+        actAs: [participant],
+        commands: [cmd],
+      });
+
+      const offeringContractId =
+        extractCreatedContractId(result, "SyndicationOffering") ??
+        (await resolveSyndicationOfferingCid(client, parties.financierA.partyId, syndicationBidId).catch(
+          () => syndicationBidId
+        ));
+
+      json(res, 201, {
+        bidContractId: extractCreatedContractId(result, "SyndicationBid"),
+        offeringContractId,
+        oracleFresh: oracle.isFresh,
+        transaction: result.transaction?.updateId,
+      });
+      return;
+    }
+
+    const syndicationReplaceBidId = syndicationOfferingId(url.pathname, "replace-bid");
+    if (req.method === "POST" && syndicationReplaceBidId) {
+      const body = (await readBody(req)) as {
+        shareBps?: number;
+        discountRate?: string;
+        useStaticReference?: boolean;
+        participantPartyId?: string;
+      };
+
+      if (body.shareBps == null || !body.discountRate) {
+        json(res, 400, { error: "shareBps and discountRate required" });
+        return;
+      }
+
+      const participant = body.participantPartyId ?? parties.financierB.partyId;
+      const oracle = await fetchOracleFeed();
+      const mode = body.useStaticReference ? staticReferenceMode() : oracleAnchoredMode();
+      const ledgerTime = new Date(oracle.packageTimestampMs).toISOString();
+
+      const cmd = buildReplaceSyndicationBidCommand({
+        offeringContractId: syndicationReplaceBidId,
+        participant,
+        shareBps: body.shareBps,
+        discountRate: body.discountRate,
+        redstonePayload: oracle.canton.payloadHex,
+        redstoneTimestampMs: oracle.packageTimestampMs,
+        mode,
+        ledgerTime,
+      });
+
+      const result = await client.submitAndWaitForTransaction({
+        actAs: [participant],
+        commands: [cmd],
+      });
+
+      const offeringContractId =
+        extractCreatedContractId(result, "SyndicationOffering") ??
+        (await resolveSyndicationOfferingCid(
+          client,
+          parties.financierA.partyId,
+          syndicationReplaceBidId
+        ).catch(() => syndicationReplaceBidId));
+
+      json(res, 200, {
+        bidContractId: extractCreatedContractId(result, "SyndicationBid"),
+        offeringContractId,
         oracleFresh: oracle.isFresh,
         transaction: result.transaction?.updateId,
       });

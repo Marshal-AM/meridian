@@ -1,0 +1,21 @@
+module Meridian.Syndication.Types where
+
+-- | Cap table row for syndicated participation (§7.6).
+data CapTableEntry = CapTableEntry
+  with
+    participant : Party
+    shareBps : Int
+    entryRef : Text
+  deriving (Eq, Show)
+
+totalShareBps : [CapTableEntry] -> Int
+totalShareBps entries = sum (map (.shareBps) entries)
+
+assertValidShareBps : Int -> Update ()
+assertValidShareBps bps =
+  assertMsg "shareBps must be between 1 and 10000" (bps > 0 && bps <= 10000)
+
+assertCapTableWithinLimit : [CapTableEntry] -> Int -> Update ()
+assertCapTableWithinLimit existing newBps =
+  assertMsg "Total syndicated share exceeds 10000 bps"
+    (totalShareBps existing + newBps <= 10000)

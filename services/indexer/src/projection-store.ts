@@ -6,9 +6,13 @@ import type {
   ConsentPolicySummary,
   FinancingRequestSummary,
   InterfaceProjection,
+  LeadCapTableView,
+  ParticipationInterestSummary,
   ReceivableProposalSummary,
   RoundState,
   SupplierReceivableView,
+  SyndicationBidSummary,
+  SyndicationOfferingSummary,
 } from "@meridian/shared-types";
 import { rankBids, type BidComparisonOptions } from "./bid-comparison.js";
 
@@ -57,6 +61,27 @@ export class ProjectionStore {
         contract_id TEXT PRIMARY KEY,
         receivable_id TEXT NOT NULL,
         proof_json TEXT NOT NULL,
+        offset TEXT NOT NULL,
+        archived INTEGER NOT NULL DEFAULT 0
+      );
+      CREATE TABLE IF NOT EXISTS syndication_offerings (
+        contract_id TEXT PRIMARY KEY,
+        offering_id TEXT NOT NULL,
+        offering_json TEXT NOT NULL,
+        offset TEXT NOT NULL,
+        archived INTEGER NOT NULL DEFAULT 0
+      );
+      CREATE TABLE IF NOT EXISTS syndication_bids (
+        contract_id TEXT PRIMARY KEY,
+        offering_id TEXT NOT NULL,
+        bid_json TEXT NOT NULL,
+        offset TEXT NOT NULL,
+        archived INTEGER NOT NULL DEFAULT 0
+      );
+      CREATE TABLE IF NOT EXISTS participation_interests (
+        contract_id TEXT PRIMARY KEY,
+        receivable_id TEXT NOT NULL,
+        interest_json TEXT NOT NULL,
         offset TEXT NOT NULL,
         archived INTEGER NOT NULL DEFAULT 0
       );
@@ -321,5 +346,139 @@ export class ProjectionStore {
     return this.getSupplierReceivables().filter(
       (r) => r.payeeOfRecord?.payee === actingParty
     );
+  }
+
+  upsertSyndicationOffering(offering: SyndicationOfferingSummary, offset: string): void {
+    this.db
+      .prepare(
+        `INSERT INTO syndication_offerings (contract_id, offering_id, offering_json, offset, archived)
+         VALUES (?, ?, ?, ?, 0)
+         ON CONFLICT(contract_id) DO UPDATE SET
+           offering_id = excluded.offering_id,
+           offering_json = excluded.offering_json,
+           offset = excluded.offset,
+           archived = 0`
+      )
+      .run(offering.contractId, offering.offeringId, JSON.stringify(offering), offset);
+  }
+
+  archiveSyndicationOfferings(contractIds: string[]): void {
+    if (contractIds.length === 0) return;
+    const stmt = this.db.prepare(
+      `UPDATE syndication_offerings SET archived = 1 WHERE contract_id = ?`
+    );
+    for (const id of contractIds) stmt.run(id);
+  }
+
+  upsertSyndicationBid(bid: SyndicationBidSummary, offset: string): void {
+    this.db
+      .prepare(
+        `INSERT INTO syndication_bids (contract_id, offering_id, bid_json, offset, archived)
+         VALUES (?, ?, ?, ?, 0)
+         ON CONFLICT(contract_id) DO UPDATE SET
+           offering_id = excluded.offering_id,
+           bid_json = excluded.bid_json,
+           offset = excluded.offset,
+           archived = 0`
+      )
+      .run(bid.contractId, bid.offeringId, JSON.stringify(bid), offset);
+  }
+
+  archiveSyndicationBids(contractIds: string[]): void {
+    if (contractIds.length === 0) return;
+    const stmt = this.db.prepare(`UPDATE syndication_bids SET archived = 1 WHERE contract_id = ?`);
+    for (const id of contractIds) stmt.run(id);
+  }
+
+  upsertParticipationInterest(interest: ParticipationInterestSummary, offset: string): void {
+    this.db
+      .prepare(
+        `INSERT INTO participation_interests (contract_id, receivable_id, interest_json, offset, archived)
+         VALUES (?, ?, ?, ?, 0)
+         ON CONFLICT(contract_id) DO UPDATE SET
+           receivable_id = excluded.receivable_id,
+           interest_json = excluded.interest_json,
+           offset = excluded.offset,
+           archived = 0`
+      )
+      .run(interest.contractId, interest.receivableId, JSON.stringify(interest), offset);
+  }
+
+  archiveParticipationInterests(contractIds: string[]): void {
+    if (contractIds.length === 0) return;
+    const stmt = this.db.prepare(
+      `UPDATE participation_interests SET archived = 1 WHERE contract_id = ?`
+    );
+    for (const id of contractIds) stmt.run(id);
+  }
+
+  getSyndicationOfferings(): SyndicationOfferingSummary[] {
+    const rows = this.db
+      .prepare(`SELECT offering_json FROM syndication_offerings WHERE archived = 0`)
+      .all() as Array<{ offering_json: string }>;
+    return rows.map((r) => JSON.parse(r.offering_json) as SyndicationOfferingSummary);
+  }
+
+  getSyndicationInvitations(actingParty: string): SyndicationOfferingSummary[] {
+    return this.getSyndicationOfferings().filter((o) =>
+      o.invitedParticipants.includes(actingParty)
+    );
+  }
+
+  getSyndicationBidsForOffering(offeringContractId: string): SyndicationBidSummary[] {
+    const offering = this.getSyndicationOfferings().find((o) => o.contractId === offeringContractId);
+    if (!offering) return [];
+    const rows = this.db
+      .prepare(`SELECT bid_json FROM syndication_bids WHERE offering_id = ? AND archived = 0`)
+      .all(offering.offeringId) as Array<{ bid_json: string }>;
+    return rows.map((r) => JSON.parse(r.bid_json) as SyndicationBidSummary);
+  }
+
+  getParticipationInterests(actingParty: string): ParticipationInterestSummary[] {
+    const rows = this.db
+      .prepare(`SELECT interest_json FROM participation_interests WHERE archived = 0`)
+      .all() as Array<{ interest_json: string }>;
+    return rows
+      .map((r) => JSON.parse(r.interest_json) as ParticipationInterestSummary)
+      .filter(
+        (i) => i.participant === actingParty || i.leadFinancier === actingParty
+      );
+  }
+
+  getLeadCapTable(receivableId: string): LeadCapTableView | null {
+    const rows = this.db
+      .prepare(
+        `SELECT view_json, offset FROM interface_projections
+         WHERE interface_name = 'ILeadFinancierView' AND archived = 0
+         ORDER BY offset DESC`
+      )
+      .all() as Array<{ view_json: string; offset: string }>;
+    for (const row of rows) {
+      const view = JSON.parse(row.view_json) as LeadCapTableView;
+      if (view.receivableId === receivableId && (view.capTable?.length ?? 0) > 0) {
+        return view;
+      }
+    }
+
+    const interestRows = this.db
+      .prepare(`SELECT interest_json FROM participation_interests WHERE receivable_id = ? AND archived = 0`)
+      .all(receivableId) as Array<{ interest_json: string }>;
+    if (interestRows.length === 0) return null;
+
+    const interests = interestRows.map(
+      (r) => JSON.parse(r.interest_json) as ParticipationInterestSummary
+    );
+    const sample = interests[0]!;
+    return {
+      receivableId,
+      faceValue: sample.faceValue,
+      currency: sample.currency,
+      capTable: interests.map((i) => ({
+        participant: i.participant,
+        shareBps: i.shareBps,
+        entryRef: i.entryRef,
+      })),
+      syndicationState: "PartiallySyndicated",
+    };
   }
 }

@@ -232,6 +232,65 @@ export interface BidSummary {
   ledgerTime: string;
 }
 
+/** Cap table entry for syndicated positions (§7.6). */
+export interface CapTableEntry {
+  participant: string;
+  shareBps: number;
+  entryRef: string;
+}
+
+/** Lead-financier syndication offering projection. */
+export interface SyndicationOfferingSummary {
+  contractId: string;
+  offeringId: string;
+  receivableCid: string;
+  receivableId: string;
+  leadFinancier: string;
+  invitedParticipants: string[];
+  deadline: string;
+  pricingBandMin: string;
+  pricingBandMax: string;
+  roundState: RoundState;
+  activeBidCount: number;
+  faceValue: string;
+  currency: string;
+}
+
+/** Sealed syndication interest bid. */
+export interface SyndicationBidSummary {
+  contractId: string;
+  offeringId: string;
+  participant: string;
+  leadFinancier: string;
+  shareBps: number;
+  discountRate: string;
+  reportId: string;
+  mode: BidPricingMode;
+}
+
+/** Pass-through participation interest (§7.6). */
+export interface ParticipationInterestSummary {
+  contractId: string;
+  receivableId: string;
+  leadFinancier: string;
+  participant: string;
+  shareBps: number;
+  faceValue: string;
+  currency: string;
+  legalNature: string;
+  instrumentClass: string;
+  entryRef: string;
+}
+
+/** Lead financier cap table view. */
+export interface LeadCapTableView {
+  receivableId: string;
+  faceValue: string;
+  currency: string;
+  capTable: CapTableEntry[];
+  syndicationState: ReceivableState;
+}
+
 /** Supplier bid-comparison row with oracle-normalized effective rate (§9.1). */
 export interface BidComparisonRow {
   bidContractId: string;
@@ -260,7 +319,21 @@ export type MeridianNotificationEvent =
     }
   | { type: "round.paused"; requestId: string; contractId: string }
   | { type: "receivable.repaid"; receivableId: string; contractId: string }
-  | { type: "receivable.overdue"; receivableId: string; contractId: string };
+  | { type: "receivable.overdue"; receivableId: string; contractId: string }
+  | { type: "syndication.opened"; offeringId: string; contractId: string }
+  | {
+      type: "syndication.bid_submitted";
+      offeringId: string;
+      bidContractId: string;
+      participant: string;
+    }
+  | {
+      type: "syndication.awarded";
+      offeringId: string;
+      contractId: string;
+      winningBidCid: string;
+    }
+  | { type: "syndication.waterfall_distributed"; receivableId: string; contractId: string };
 
 export interface InterfaceProjection {
   contractId: string;

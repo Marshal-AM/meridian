@@ -52,3 +52,8 @@ canTransition PartiallySyndicated Defaulted = True
 canTransition Overdue Repaid = True
 canTransition Overdue Defaulted = True
 canTransition _ _ = False
+
+-- | Supplier portal shows Funded when internally PartiallySyndicated (§7.6).
+supplierDisplayState : ReceivableState -> ReceivableState
+supplierDisplayState PartiallySyndicated = Funded
+supplierDisplayState s = s

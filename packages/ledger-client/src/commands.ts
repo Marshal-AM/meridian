@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 /** Package-name template reference (works after DAR upload). */
-export const RECEIVABLE_PACKAGE = "com-meridian-receivable-v3";
+export const RECEIVABLE_PACKAGE = "com-meridian-receivable-v4";
 export const CASH_PACKAGE = "com-meridian-cash";
 export const SPLICE_ALLOCATION_FACTORY_INTERFACE =
   "#splice-api-token-allocation-instruction-v1:Splice.Api.Token.AllocationInstructionV1:AllocationFactory";
@@ -24,6 +24,13 @@ export const FINANCING = {
   financingRoundFactory: `#${RECEIVABLE_PACKAGE}:Meridian.Financing.FinancingRoundFactory:FinancingRoundFactory`,
 } as const;
 
+export const SYNDICATION = {
+  syndicationOffering: `#${RECEIVABLE_PACKAGE}:Meridian.Syndication.SyndicationOffering:SyndicationOffering`,
+  syndicationBid: `#${RECEIVABLE_PACKAGE}:Meridian.Syndication.SyndicationBid:SyndicationBid`,
+  participationInterest: `#${RECEIVABLE_PACKAGE}:Meridian.Syndication.ParticipationInterest:ParticipationInterest`,
+  syndicationFactory: `#${RECEIVABLE_PACKAGE}:Meridian.Syndication.SyndicationFactory:SyndicationFactory`,
+} as const;
+
 export const TEMPLATE_IDS = {
   receivableProposal: `#${RECEIVABLE_PACKAGE}:Meridian.Receivable.ReceivableProposal:ReceivableProposal`,
   receivable: `#${RECEIVABLE_PACKAGE}:Meridian.Receivable.Receivable:Receivable`,
@@ -31,12 +38,18 @@ export const TEMPLATE_IDS = {
   financingRequest: FINANCING.financingRequest,
   bid: FINANCING.bid,
   financingRoundFactory: FINANCING.financingRoundFactory,
+  syndicationOffering: SYNDICATION.syndicationOffering,
+  syndicationBid: SYNDICATION.syndicationBid,
+  participationInterest: SYNDICATION.participationInterest,
+  syndicationFactory: SYNDICATION.syndicationFactory,
 } as const;
 
 export const INTERFACE_IDS = {
   buyerView: `#${RECEIVABLE_PACKAGE}:Meridian.Receivable.Interfaces:IBuyerView`,
   supplierView: `#${RECEIVABLE_PACKAGE}:Meridian.Receivable.Interfaces:ISupplierView`,
   financierView: `#${RECEIVABLE_PACKAGE}:Meridian.Receivable.Interfaces:IFinancierView`,
+  leadFinancierView: `#${RECEIVABLE_PACKAGE}:Meridian.Receivable.Interfaces:ILeadFinancierView`,
+  participantView: `#${RECEIVABLE_PACKAGE}:Meridian.Receivable.Interfaces:IParticipantView`,
   regulatorView: `#${RECEIVABLE_PACKAGE}:Meridian.Receivable.Interfaces:IRegulatorView`,
 } as const;
 
@@ -120,9 +133,42 @@ export interface CreateAdvanceAllocationArgs {
 
 export interface RepayWithProofArgs {
   receivableContractId: string;
-  settlementAllocationCid: string;
+  settlementAllocationCids: string[];
   expectedAmount: string;
   settlementRef: string;
+  syndicationParticipants?: string[];
+}
+
+export interface OpenSyndicationOfferingArgs {
+  factoryContractId: string;
+  receivableCid: string;
+  offeringId: string;
+  participants: string[];
+  deadline: string;
+  pricingBandMin: string;
+  pricingBandMax: string;
+  redstoneFeedId: number[];
+}
+
+export interface SubmitSyndicationBidArgs {
+  offeringContractId: string;
+  participant: string;
+  shareBps: number;
+  discountRate: string;
+  redstonePayload: string;
+  redstoneTimestampMs: number;
+  mode: BidPricingModeArg;
+  ledgerTime: string;
+}
+
+export interface AwardSyndicationBidArgs {
+  offeringContractId: string;
+  winningBidCid: string;
+  winningParticipant: string;
+}
+
+export interface CreateSyndicationFactoryArgs {
+  leadFinancier: string;
 }
 
 export interface MarkOverdueArgs {
@@ -397,10 +443,140 @@ export function buildRepayWithProofCommand(args: RepayWithProofArgs): LedgerComm
       contractId: args.receivableContractId,
       choice: "RepayWithProof",
       choiceArgument: {
-        settlementAllocationCid: args.settlementAllocationCid,
+        settlementAllocationCids: args.settlementAllocationCids,
         expectedAmount: args.expectedAmount,
         settlementRef: args.settlementRef,
+        syndicationParticipants: args.syndicationParticipants ?? [],
       },
+    },
+  };
+}
+
+export function buildCreateSyndicationFactoryCommand(
+  args: CreateSyndicationFactoryArgs
+): LedgerCommand {
+  return {
+    CreateCommand: {
+      templateId: TEMPLATE_IDS.syndicationFactory,
+      createArguments: { leadFinancier: args.leadFinancier },
+    },
+  };
+}
+
+export function buildOpenSyndicationOfferingCommand(
+  args: OpenSyndicationOfferingArgs
+): LedgerCommand {
+  return {
+    ExerciseCommand: {
+      templateId: TEMPLATE_IDS.syndicationFactory,
+      contractId: args.factoryContractId,
+      choice: "OpenOffering",
+      choiceArgument: {
+        receivableCid: args.receivableCid,
+        offeringId: args.offeringId,
+        participants: args.participants,
+        deadline: args.deadline,
+        pricingBandMin: args.pricingBandMin,
+        pricingBandMax: args.pricingBandMax,
+        redstoneFeedId: args.redstoneFeedId.map(String),
+      },
+    },
+  };
+}
+
+export function buildSubmitSyndicationBidCommand(
+  args: SubmitSyndicationBidArgs
+): LedgerCommand {
+  return {
+    ExerciseCommand: {
+      templateId: TEMPLATE_IDS.syndicationOffering,
+      contractId: args.offeringContractId,
+      choice: "SubmitBid",
+      choiceArgument: {
+        participant: args.participant,
+        shareBps: String(args.shareBps),
+        discountRate: args.discountRate,
+        redstonePayload: args.redstonePayload,
+        redstoneTimestampMs: String(args.redstoneTimestampMs),
+        mode: args.mode,
+        ledgerTime: args.ledgerTime,
+      },
+    },
+  };
+}
+
+export function buildReplaceSyndicationBidCommand(
+  args: SubmitSyndicationBidArgs
+): LedgerCommand {
+  return {
+    ExerciseCommand: {
+      templateId: TEMPLATE_IDS.syndicationOffering,
+      contractId: args.offeringContractId,
+      choice: "ReplaceBid",
+      choiceArgument: {
+        participant: args.participant,
+        shareBps: String(args.shareBps),
+        discountRate: args.discountRate,
+        redstonePayload: args.redstonePayload,
+        redstoneTimestampMs: String(args.redstoneTimestampMs),
+        mode: args.mode,
+        ledgerTime: args.ledgerTime,
+      },
+    },
+  };
+}
+
+export function buildAwardSyndicationBidCommand(
+  args: AwardSyndicationBidArgs
+): LedgerCommand {
+  return {
+    ExerciseCommand: {
+      templateId: TEMPLATE_IDS.syndicationOffering,
+      contractId: args.offeringContractId,
+      choice: "AwardBid",
+      choiceArgument: {
+        winningBidCid: args.winningBidCid,
+        winningParticipant: args.winningParticipant,
+      },
+    },
+  };
+}
+
+export function buildPauseSyndicationRoundCommand(
+  offeringContractId: string
+): LedgerCommand {
+  return {
+    ExerciseCommand: {
+      templateId: TEMPLATE_IDS.syndicationOffering,
+      contractId: offeringContractId,
+      choice: "PauseRound",
+      choiceArgument: {},
+    },
+  };
+}
+
+export function buildSyndicationStaticFallbackCommand(
+  offeringContractId: string
+): LedgerCommand {
+  return {
+    ExerciseCommand: {
+      templateId: TEMPLATE_IDS.syndicationOffering,
+      contractId: offeringContractId,
+      choice: "EnterStaticReferenceFallback",
+      choiceArgument: {},
+    },
+  };
+}
+
+export function buildExpireSyndicationRoundCommand(
+  offeringContractId: string
+): LedgerCommand {
+  return {
+    ExerciseCommand: {
+      templateId: TEMPLATE_IDS.syndicationOffering,
+      contractId: offeringContractId,
+      choice: "ExpireRound",
+      choiceArgument: {},
     },
   };
 }

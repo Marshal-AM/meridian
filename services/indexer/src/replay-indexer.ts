@@ -16,6 +16,7 @@ import {
   projectSupplierView,
   projectRepaymentProof,
   isRepaymentProofTemplate,
+  projectLeadFinancierView,
 } from "./receivable-projector.js";
 import {
   isBidTemplate,
@@ -23,6 +24,14 @@ import {
   projectBid,
   projectFinancingRequest,
 } from "./financing-projector.js";
+import {
+  isParticipationInterestTemplate,
+  isSyndicationBidTemplate,
+  isSyndicationOfferingTemplate,
+  projectParticipationInterest,
+  projectSyndicationBid,
+  projectSyndicationOffering,
+} from "./syndication-projector.js";
 
 /** Per-org isolated append-only event store — no cross-org shared DB. */
 export class IndexerStore {
@@ -239,6 +248,9 @@ export class ReplayIndexer {
     this.store.projections.archiveProposals(archived);
     this.store.projections.archiveFinancingRequests(archived);
     this.store.projections.archiveBids(archived);
+    this.store.projections.archiveSyndicationOfferings(archived);
+    this.store.projections.archiveSyndicationBids(archived);
+    this.store.projections.archiveParticipationInterests(archived);
   }
 
   private projectContractCreate(
@@ -272,6 +284,21 @@ export class ReplayIndexer {
           archived: false,
         });
       }
+      if (this.config.role === "Financier") {
+        const payeeOfRecord = payload.payeeOfRecord as Record<string, unknown> | undefined;
+        const payee = String(payeeOfRecord?.payee ?? "");
+        if (payee === party) {
+          const leadView = projectLeadFinancierView(contractId, payload);
+          this.store.projections.upsertProjection({
+            contractId,
+            interfaceName: "ILeadFinancierView",
+            party,
+            viewJson: leadView,
+            offset,
+            archived: false,
+          });
+        }
+      }
     }
 
     if (isReceivableProposalTemplate(templateId)) {
@@ -297,6 +324,21 @@ export class ReplayIndexer {
     if (isRepaymentProofTemplate(templateId) && this.config.role === "Supplier") {
       const proof = projectRepaymentProof(contractId, payload);
       this.store.projections.upsertRepaymentProof(proof, offset);
+    }
+
+    if (isSyndicationOfferingTemplate(templateId) && this.config.role === "Financier") {
+      const offering = projectSyndicationOffering(contractId, payload);
+      this.store.projections.upsertSyndicationOffering(offering, offset);
+    }
+
+    if (isSyndicationBidTemplate(templateId) && this.config.role === "Financier") {
+      const bid = projectSyndicationBid(contractId, payload);
+      this.store.projections.upsertSyndicationBid(bid, offset);
+    }
+
+    if (isParticipationInterestTemplate(templateId) && this.config.role === "Financier") {
+      const interest = projectParticipationInterest(contractId, payload);
+      this.store.projections.upsertParticipationInterest(interest, offset);
     }
   }
 

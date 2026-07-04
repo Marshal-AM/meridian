@@ -1,0 +1,26 @@
+module Meridian.Syndication.Waterfall where
+
+import Meridian.Syndication.Types
+
+-- | Pro-rata share of face value for one cap-table row (basis points).
+shareAmount : Decimal -> Int -> Decimal
+shareAmount faceValue shareBps =
+  (faceValue * intToDecimal shareBps) / 10000.0
+
+-- | Compute waterfall distribution: participants receive pro-rata shares;
+-- lead receives the remainder (retained + rounding dust) per §9.4.
+computeWaterfall :
+  Decimal
+  -> [CapTableEntry]
+  -> Party
+  -> [(Party, Decimal)]
+computeWaterfall faceValue capTable lead =
+  let participantParts =
+        map (\e -> (e.participant, shareAmount faceValue e.shareBps)) capTable
+      distributed = sum (map snd participantParts)
+      leadAmount = faceValue - distributed
+  in participantParts ++ [(lead, leadAmount)]
+
+waterfallTotal : Decimal -> [CapTableEntry] -> Party -> Decimal
+waterfallTotal faceValue capTable lead =
+  sum (map snd (computeWaterfall faceValue capTable lead))

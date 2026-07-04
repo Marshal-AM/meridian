@@ -1,0 +1,49 @@
+module Meridian.Syndication.SyndicationFactory where
+
+import DA.Time
+import DA.Map as M
+import Meridian.Financing.Types
+import Meridian.Syndication.SyndicationOffering
+import Meridian.Receivable.Receivable
+import Meridian.Receivable.Types
+
+-- | Lead financier opens a syndication offering from a funded position (§7.6).
+template SyndicationFactory
+  with
+    leadFinancier : Party
+  where
+    signatory leadFinancier
+
+    choice OpenOffering : ContractId SyndicationOffering
+      with
+        receivableCid : ContractId Receivable
+        offeringId : Text
+        participants : [Party]
+        deadline : Time
+        pricingBandMin : Decimal
+        pricingBandMax : Decimal
+        redstoneFeedId : [Int]
+      controller leadFinancier
+      do
+        receivable <- fetch receivableCid
+        assertMsg "Lead must be payee-of-record"
+          (receivable.payeeOfRecord.payee == leadFinancier)
+        assertMsg "Receivable must be Funded or PartiallySyndicated"
+          (receivable.state == Funded || receivable.state == PartiallySyndicated)
+        assertMsg "Pricing band invalid" (pricingBandMin <= pricingBandMax)
+        assertMsg "Must invite at least one participant" (not (Prelude.null participants))
+        create SyndicationOffering with
+          offeringId
+          receivableCid
+          receivableId = receivable.receivableId
+          leadFinancier
+          invitedParticipants = participants
+          deadline
+          pricingBandMin
+          pricingBandMax
+          redstoneFeedId
+          roundState = RoundOpen
+          activeBids = mempty
+          bidHistory = []
+          faceValue = receivable.faceValue
+          currency = receivable.currency

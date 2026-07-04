@@ -1,0 +1,218 @@
+module Meridian.SyndicationTest where
+
+import Daml.Script
+import DA.Time
+import Meridian.Receivable.Receivable
+import Meridian.Receivable.Types
+import Meridian.Receivable.Interfaces
+import Meridian.Syndication.SyndicationFactory
+import Meridian.Syndication.SyndicationOffering
+import Meridian.Syndication.SyndicationBid
+import Meridian.Syndication.ParticipationInterest
+import Meridian.Syndication.Types
+import Meridian.Syndication.Waterfall
+import Meridian.Financing.Types
+import Meridian.FinancingFixtures
+import Meridian.FinancingTest (issuePostedReceivable, openSampleRound, submitOracleBid, awardBidWithCash)
+import Meridian.CashFixtures
+import Meridian.Cash.Holding (MusdHolding)
+
+syndicationDeadline : Time
+syndicationDeadline = addRelTime sampleOracleLedgerTime (days 7)
+
+openSyndicationOffering :
+  ContractId Receivable
+  -> Party
+  -> [Party]
+  -> Script (ContractId SyndicationOffering)
+openSyndicationOffering receivableCid lead participants = do
+  setTime sampleOracleLedgerTime
+  factoryCid <- submit lead do createCmd SyndicationFactory with leadFinancier = lead
+  submit lead do
+    exerciseCmd factoryCid OpenOffering with
+      receivableCid
+      offeringId = "SYND-001"
+      participants
+      deadline = syndicationDeadline
+      pricingBandMin = 0.01
+      pricingBandMax = 0.15
+      redstoneFeedId = sofrFeedIdAscii
+
+submitSyndicationBid :
+  ContractId SyndicationOffering
+  -> Party
+  -> Int
+  -> Decimal
+  -> Script (ContractId SyndicationOffering, ContractId SyndicationBid)
+submitSyndicationBid offeringCid participant shareBps discount = do
+  setTime sampleOracleLedgerTime
+  submit participant do
+    exerciseCmd offeringCid SubmitBid with
+      participant
+      shareBps
+      discountRate = discount
+      redstonePayload = sampleSofrPayloadHex
+      redstoneTimestampMs = sampleRedstoneTimestampMs
+      mode = OracleAnchored
+      ledgerTime = sampleOracleLedgerTime
+
+buyerUnlockedHolding : Party -> Script (ContractId MusdHolding)
+buyerUnlockedHolding buyer = do
+  holdings <- query @MusdHolding buyer
+  case map fst holdings of
+    [cid] -> pure cid
+    _ -> abort "expected exactly one MusdHolding for buyer"
+
+testWaterfallRounding : Script ()
+testWaterfallRounding = script do
+  p1 <- allocateParty "P1"
+  p2 <- allocateParty "P2"
+  p3 <- allocateParty "P3"
+  lead <- allocateParty "Lead"
+  let face = 3000.0
+  let entries =
+        [ CapTableEntry with participant = p1; shareBps = 3333; entryRef = "a"
+        , CapTableEntry with participant = p2; shareBps = 3333; entryRef = "b"
+        , CapTableEntry with participant = p3; shareBps = 3334; entryRef = "c"
+        ]
+  assert (waterfallTotal face entries lead == face)
+
+testFullSyndicationRound : Script ()
+testFullSyndicationRound = script do
+  admin <- allocateParty "Registry"
+  supplier <- allocateParty "Supplier"
+  buyer <- allocateParty "Buyer"
+  lead <- allocateParty "LeadFinancier"
+  participant <- allocateParty "Participant"
+
+  receivableCid <- issuePostedReceivable supplier buyer
+  reqCid <- openSampleRound receivableCid supplier [lead]
+  (reqCid1, bidCid) <- submitOracleBid reqCid lead 1800.0 0.05
+  fundedCid <- awardBidWithCash admin supplier lead reqCid1 bidCid 1800.0
+
+  offeringCid <- openSyndicationOffering fundedCid lead [participant]
+  (offeringCid1, syndBidCid) <- submitSyndicationBid offeringCid participant 4000 0.04
+
+  syndicatedCid <- submit (actAs lead <> actAs participant) do
+    exerciseCmd offeringCid1 AwardBid with
+      winningBidCid = syndBidCid
+      winningParticipant = participant
+
+  Some syndicated <- queryContractId lead syndicatedCid
+  assert (syndicated.state == PartiallySyndicated)
+  assert (length syndicated.capTable == 1)
+  assert (totalShareBps syndicated.capTable == 4000)
+
+  supplierViews <- queryInterface @ISupplierView supplier
+  let [(_, Some sv)] = supplierViews
+  assert (sv.state == Funded)
+
+  leadViews <- queryInterface @ILeadFinancierView lead
+  assert (not (null leadViews))
+
+  participantViews <- queryInterface @IParticipantView participant
+  assert (not (null participantViews))
+
+  pure ()
+
+testSealedSyndicationBidPrivacy : Script ()
+testSealedSyndicationBidPrivacy = script do
+  admin <- allocateParty "Registry"
+  supplier <- allocateParty "Supplier"
+  buyer <- allocateParty "Buyer"
+  lead <- allocateParty "LeadFinancier"
+  participantA <- allocateParty "ParticipantA"
+  participantB <- allocateParty "ParticipantB"
+
+  receivableCid <- issuePostedReceivable supplier buyer
+  reqCid <- openSampleRound receivableCid supplier [lead]
+  (reqCid1, bidCid) <- submitOracleBid reqCid lead 1800.0 0.05
+  fundedCid <- awardBidWithCash admin supplier lead reqCid1 bidCid 1800.0
+
+  offeringCid <- openSyndicationOffering fundedCid lead [participantA, participantB]
+  _ <- submitSyndicationBid offeringCid participantA 3000 0.03
+
+  participantBBids <- query @SyndicationBid participantB
+  assert (null participantBBids)
+
+  pure ()
+
+testSyndicationWaterfallRepayment : Script ()
+testSyndicationWaterfallRepayment = script do
+  admin <- allocateParty "Registry"
+  supplier <- allocateParty "Supplier"
+  buyer <- allocateParty "Buyer"
+  lead <- allocateParty "LeadFinancier"
+  participant <- allocateParty "Participant"
+
+  receivableCid <- issuePostedReceivable supplier buyer
+  reqCid <- openSampleRound receivableCid supplier [lead]
+  (reqCid1, bidCid) <- submitOracleBid reqCid lead 1800.0 0.05
+  fundedCid <- awardBidWithCash admin supplier lead reqCid1 bidCid 1800.0
+
+  offeringCid <- openSyndicationOffering fundedCid lead [participant]
+  (offeringCid1, syndBidCid) <- submitSyndicationBid offeringCid participant 4000 0.04
+  syndicatedCid <- submit (actAs lead <> actAs participant) do
+    exerciseCmd offeringCid1 AwardBid with
+      winningBidCid = syndBidCid
+      winningParticipant = participant
+
+  (registryCid, rulesCid) <- bootstrapCashRegistry admin
+  now <- getTime
+  leadBalBefore <- holdingBalance lead
+  buyerHolding <- mintMusd registryCid admin buyer 2000.0
+  allocParticipant <-
+    createAdvanceAllocation rulesCid admin supplier buyer participant 800.0 now buyerHolding
+  changeHolding <- buyerUnlockedHolding buyer
+  allocLead <-
+    createAdvanceAllocation rulesCid admin supplier buyer lead 1200.0 now changeHolding
+  let allocCids = [allocParticipant, allocLead]
+
+  (repaidCid, _) <- submit (actAs buyer <> actAs lead <> actAs supplier <> actAs participant) do
+    exerciseCmd syndicatedCid RepayWithProof with
+      settlementAllocationCids = allocCids
+      expectedAmount = 2000.0
+      settlementRef = "synd-waterfall-001"
+      syndicationParticipants = [participant]
+
+  Some repaid <- queryContractId supplier repaidCid
+  assert (repaid.state == Repaid)
+
+  participantBal <- holdingBalance participant
+  leadBalAfter <- holdingBalance lead
+  assert (participantBal == 800.0)
+  assert (leadBalAfter - leadBalBefore == 1200.0)
+
+  pure ()
+
+testBuyerSupplierNoSyndicationVisibility : Script ()
+testBuyerSupplierNoSyndicationVisibility = script do
+  admin <- allocateParty "Registry"
+  supplier <- allocateParty "Supplier"
+  buyer <- allocateParty "Buyer"
+  lead <- allocateParty "LeadFinancier"
+  participant <- allocateParty "Participant"
+
+  receivableCid <- issuePostedReceivable supplier buyer
+  reqCid <- openSampleRound receivableCid supplier [lead]
+  (reqCid1, bidCid) <- submitOracleBid reqCid lead 1800.0 0.05
+  fundedCid <- awardBidWithCash admin supplier lead reqCid1 bidCid 1800.0
+  offeringCid <- openSyndicationOffering fundedCid lead [participant]
+  (offeringCid1, syndBidCid) <- submitSyndicationBid offeringCid participant 4000 0.04
+  _ <- submit (actAs lead <> actAs participant) do
+    exerciseCmd offeringCid1 AwardBid with
+      winningBidCid = syndBidCid
+      winningParticipant = participant
+
+  supplierOfferings <- query @SyndicationOffering supplier
+  supplierBids <- query @SyndicationBid supplier
+  supplierInterests <- query @ParticipationInterest supplier
+  buyerOfferings <- query @SyndicationOffering buyer
+  buyerInterests <- query @ParticipationInterest buyer
+  assert (null supplierOfferings)
+  assert (null supplierBids)
+  assert (null supplierInterests)
+  assert (null buyerOfferings)
+  assert (null buyerInterests)
+
+  pure ()

@@ -1,0 +1,54 @@
+module Meridian.Syndication.ParticipationInterest where
+
+import Meridian.Receivable.Interfaces
+
+-- | Pass-through economic right to repayment proceeds (§7.6, §7.10).
+-- Not a change of payee-of-record; legal nature is pass-through, not ownership.
+template ParticipationInterest
+  with
+    receivableId : Text
+    leadFinancier : Party
+    participant : Party
+    shareBps : Int
+    faceValue : Decimal
+    currency : Text
+    legalNature : Text
+    instrumentClass : Text
+    entryRef : Text
+  where
+    signatory leadFinancier, participant
+    observer participant
+
+    ensure
+      shareBps > 0
+      && shareBps <= 10000
+      && legalNature == "pass-through-proceeds"
+      && instrumentClass == "participation-interest"
+
+    interface instance IParticipantView for ParticipationInterest where
+      view =
+        ParticipantViewData with
+          receivableId
+          shareBps
+          leadFinancier
+
+createParticipationInterest :
+  Text
+  -> Party
+  -> Party
+  -> Int
+  -> Decimal
+  -> Text
+  -> Text
+  -> Update (ContractId ParticipationInterest)
+createParticipationInterest receivableId lead participant shareBps faceValue currency entryRef =
+  create ParticipationInterest with
+    receivableId
+    leadFinancier = lead
+    participant
+    shareBps
+    faceValue
+    currency
+    legalNature = "pass-through-proceeds"
+    instrumentClass = "participation-interest"
+    entryRef

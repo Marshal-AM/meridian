@@ -6,6 +6,8 @@ import {
   buildAwardBidCommand,
   buildMarkOverdueCommand,
   buildRepayWithProofCommand,
+  buildWaterfallAllocations,
+  computeWaterfall,
   CASH,
   CIP56_INTERFACES,
   extractAllocationCid,
@@ -160,9 +162,10 @@ export async function repayWithProof(
     commands: [
       buildRepayWithProofCommand({
         receivableContractId: params.receivableCid,
-        settlementAllocationCid: allocationCid,
+        settlementAllocationCids: [allocationCid],
         expectedAmount: params.faceValue,
         settlementRef: params.settlementRef,
+        syndicationParticipants: [],
       }),
     ],
   });
@@ -172,6 +175,55 @@ export async function repayWithProof(
     throw new Error("repayment result missing contract ids");
   }
   return { repaidReceivableCid, proofCid };
+}
+
+export async function repayWithWaterfall(
+  client: JsonLedgerClient,
+  cash: CashManifest,
+  params: {
+    buyer: string;
+    supplier: string;
+    payee: string;
+    receivableCid: string;
+    faceValue: string;
+    settlementRef: string;
+    capTable: Array<{ participant: string; shareBps: number }>;
+  }
+): Promise<{ repaidReceivableCid: string; proofCid: string; allocationCids: string[] }> {
+  const now = new Date().toISOString();
+  const weekLater = new Date(Date.now() + 7 * 86400000).toISOString();
+  const twoWeeks = new Date(Date.now() + 14 * 86400000).toISOString();
+  const faceValueNum = Number(params.faceValue);
+  const recipients = computeWaterfall(faceValueNum, params.capTable, params.payee);
+  const allocationCids = await buildWaterfallAllocations(client, {
+    rulesContractId: cash.rulesContractId,
+    registryAdmin: cash.registryAdminPartyId,
+    executor: params.supplier,
+    buyer: params.buyer,
+    recipients,
+    requestedAt: now,
+    allocateBefore: weekLater,
+    settleBefore: twoWeeks,
+  });
+  const syndicationParticipants = params.capTable.map((e) => e.participant);
+  const repayResult = await client.submitAndWaitForTransaction({
+    actAs: [params.buyer, params.payee, params.supplier, ...syndicationParticipants],
+    commands: [
+      buildRepayWithProofCommand({
+        receivableContractId: params.receivableCid,
+        settlementAllocationCids: allocationCids,
+        expectedAmount: params.faceValue,
+        settlementRef: params.settlementRef,
+        syndicationParticipants,
+      }),
+    ],
+  });
+  const repaidReceivableCid = extractCreatedContractId(repayResult, "Receivable:Receivable");
+  const proofCid = extractCreatedContractId(repayResult, "RepaymentProof");
+  if (!repaidReceivableCid || !proofCid) {
+    throw new Error("waterfall repayment result missing contract ids");
+  }
+  return { repaidReceivableCid, proofCid, allocationCids };
 }
 
 export async function markOverdue(

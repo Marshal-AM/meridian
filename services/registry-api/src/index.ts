@@ -8,6 +8,7 @@ import {
   CIP56_INTERFACES,
   CASH_TEMPLATES,
   MUSD_INSTRUMENT_ID,
+  TEMPLATE_IDS,
   sumMusdHoldings,
   type HoldingView,
 } from "@meridian/ledger-client";
@@ -70,6 +71,43 @@ async function main(): Promise<void> {
           name: "Meridian USD (test)",
           registryContractId: cash.registryContractId,
         });
+        return;
+      }
+
+      if (req.method === "GET" && url === "/registry/token-metadata/PARTICIPATION") {
+        json(res, 200, {
+          instrumentClass: "participation-interest",
+          legalNature: "pass-through-proceeds",
+          symbol: "PARTICIPATION",
+          name: "Participation Interest (pass-through proceeds)",
+          description:
+            "Economic participation in receivable proceeds — not ownership of the receivable.",
+        });
+        return;
+      }
+
+      if (req.method === "GET" && url.startsWith("/registry/participation-interests/")) {
+        const party = decodeURIComponent(url.replace("/registry/participation-interests/", ""));
+        const rows = await client.getActiveContractsByTemplate(
+          party,
+          TEMPLATE_IDS.participationInterest
+        );
+        const interests = rows.map((row) => {
+          const p = row.payload as Record<string, unknown>;
+          return {
+            contractId: row.contractId,
+            receivableId: String(p.receivableId ?? ""),
+            leadFinancier: String(p.leadFinancier ?? ""),
+            participant: String(p.participant ?? ""),
+            shareBps: Number(p.shareBps ?? 0),
+            faceValue: String(p.faceValue ?? ""),
+            currency: String(p.currency ?? ""),
+            legalNature: String(p.legalNature ?? "pass-through-proceeds"),
+            instrumentClass: String(p.instrumentClass ?? "participation-interest"),
+            entryRef: String(p.entryRef ?? ""),
+          };
+        });
+        json(res, 200, { party, interests });
         return;
       }
 

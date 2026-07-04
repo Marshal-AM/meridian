@@ -166,6 +166,46 @@ async function handleRequest(
       return;
     }
 
+    if (config.role === "Financier" && url === "/financier/syndication/offerings") {
+      json(res, 200, { offerings: store.getSyndicationOfferings() });
+      return;
+    }
+
+    if (config.role === "Financier" && url === "/financier/syndication/invitations") {
+      json(res, 200, {
+        invitations: store.getSyndicationInvitations(config.actingParty ?? ""),
+      });
+      return;
+    }
+
+    if (config.role === "Financier" && url === "/financier/syndication/my-interests") {
+      json(res, 200, {
+        interests: store.getParticipationInterests(config.actingParty ?? ""),
+      });
+      return;
+    }
+
+    const capTableMatch = url.match(/^\/financier\/syndication\/cap-table\/([^/]+)$/);
+    if (config.role === "Financier" && capTableMatch) {
+      const receivableId = decodeURIComponent(capTableMatch[1] ?? "");
+      const capTable = store.getLeadCapTable(receivableId);
+      if (!capTable) {
+        json(res, 404, { error: "cap table not found" });
+        return;
+      }
+      json(res, 200, capTable);
+      return;
+    }
+
+    const syndicationBidsMatch = url.match(/^\/financier\/syndication\/bids\/([^/]+)$/);
+    if (config.role === "Financier" && syndicationBidsMatch) {
+      const offeringId = decodeURIComponent(syndicationBidsMatch[1] ?? "");
+      json(res, 200, {
+        bids: store.getSyndicationBidsForOffering(offeringId),
+      });
+      return;
+    }
+
     json(res, 404, { error: "not found" });
   } catch (err) {
     json(res, 500, { error: String(err) });

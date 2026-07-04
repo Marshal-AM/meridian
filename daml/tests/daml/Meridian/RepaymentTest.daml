@@ -80,7 +80,8 @@ testRepaymentProofAndBuyerPrivacy = script do
 
   (repaidCid, proofCid) <- submit (actAs buyer <> actAs financier <> actAs supplier) do
     exerciseCmd fundedCid RepayWithProof with
-      settlementAllocationCid = repayAlloc
+      settlementAllocationCids = [repayAlloc]
+      syndicationParticipants = []
       expectedAmount = 2000.0
       settlementRef = "repay-test-001"
 

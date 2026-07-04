@@ -5,6 +5,7 @@ import { SupplierPage } from "./pages/SupplierPage";
 import { SupplierFinancingPage } from "./pages/SupplierFinancingPage";
 import { BuyerPage } from "./pages/BuyerPage";
 import { FinancierPage } from "./pages/FinancierPage";
+import { FinancierSyndicationPage } from "./pages/FinancierSyndicationPage";
 import "./index.css";
 
 function App() {
@@ -26,12 +27,19 @@ function App() {
         <NavLink to="/financier" className={({ isActive }) => (isActive ? "active" : "")}>
           Financier
         </NavLink>
+        <NavLink
+          to="/financier/syndication"
+          className={({ isActive }) => (isActive ? "active" : "")}
+        >
+          Syndication
+        </NavLink>
       </nav>
       <Routes>
         <Route path="/supplier" element={<SupplierPage />} />
         <Route path="/supplier/financing" element={<SupplierFinancingPage />} />
         <Route path="/buyer" element={<BuyerPage />} />
         <Route path="/financier" element={<FinancierPage />} />
+        <Route path="/financier/syndication" element={<FinancierSyndicationPage />} />
         <Route path="*" element={<SupplierPage />} />
       </Routes>
     </div>

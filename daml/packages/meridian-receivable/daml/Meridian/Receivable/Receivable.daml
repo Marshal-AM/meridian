@@ -2,12 +2,17 @@ module Meridian.Receivable.Receivable where
 
 import DA.Time
 import DA.Optional
+import DA.Foldable (forA_)
+import DA.Map qualified as MMap
+import DA.List (sort)
 import Splice.Api.Token.MetadataV1
 import Splice.Api.Token.AllocationV1 qualified as AllocationV1
 import Meridian.Receivable.Types
 import Meridian.Receivable.AssignmentConsentPolicy
 import Meridian.Receivable.Interfaces
 import Meridian.Receivable.RepaymentProof
+import Meridian.Syndication.Types (CapTableEntry, assertCapTableWithinLimit)
+import Meridian.Syndication.Waterfall
 
 -- | Tokenized invoice jointly held by supplier and buyer (§7.1, §8.2).
 template Receivable
@@ -25,12 +30,13 @@ template Receivable
     payeeOfRecord : PayeeOfRecord
     jurisdiction : Optional Text
     invitedFinanciers : [Party]
-    syndicationCapTable : [Text]
+    capTable : [CapTableEntry]
     fundedPricingHidden : Bool
     bidHistory : [Text]
     repaymentProofCid : Optional (ContractId RepaymentProof)
   where
     signatory supplier, buyer
+    observer payeeOfRecord.payee
 
     ensure
       faceValue >= 0.0 && assignmentConsentGranted
@@ -53,7 +59,7 @@ template Receivable
           faceValue
           currency
           dueDate
-          state
+          state = supplierDisplayState state
           consentSource
           assignmentConsentGranted
           payeeOfRecord
@@ -68,6 +74,15 @@ template Receivable
           faceValue = if null invitedFinanciers then None else Some faceValue
           currency = if null invitedFinanciers then None else Some currency
           dueDate = if null invitedFinanciers then None else Some dueDate
+
+    interface instance ILeadFinancierView for Receivable where
+      view =
+        LeadFinancierViewData with
+          receivableId
+          faceValue
+          currency
+          capTable
+          syndicationState = state
 
     interface instance IRegulatorView for Receivable where
       view =
@@ -118,11 +133,19 @@ template Receivable
           fundedPricingHidden = True
           bidHistory = "legacy-mark-funded" :: bidHistory
 
-    choice MarkPartiallySyndicated : ContractId Receivable
-      controller supplier
+    choice ApplySyndication : ContractId Receivable
+      with
+        capEntry : CapTableEntry
+        historyEntry : Text
+      controller payeeOfRecord.payee
       do
-        assertMsg "Invalid transition: Funded -> PartiallySyndicated" (state == Funded)
-        create this with state = PartiallySyndicated
+        assertMsg "Must be Funded or PartiallySyndicated to syndicate"
+          (state == Funded || state == PartiallySyndicated)
+        assertCapTableWithinLimit capTable capEntry.shareBps
+        create this with
+          state = PartiallySyndicated
+          capTable = capTable ++ [capEntry]
+          bidHistory = historyEntry :: bidHistory
 
     choice MarkRepaid : ContractId Receivable
       controller buyer
@@ -132,23 +155,47 @@ template Receivable
 
     choice RepayWithProof : (ContractId Receivable, ContractId RepaymentProof)
       with
-        settlementAllocationCid : ContractId AllocationV1.Allocation
+        settlementAllocationCids : [ContractId AllocationV1.Allocation]
         expectedAmount : Decimal
         settlementRef : Text
-      controller buyer, payeeOfRecord.payee, supplier
+        syndicationParticipants : [Party]
+      controller buyer, payeeOfRecord.payee, supplier :: syndicationParticipants
       do
         assertMsg "Invalid transition to Repaid"
           (state == Funded || state == PartiallySyndicated || state == Overdue)
         assertMsg "Repayment amount must match face value" (expectedAmount == faceValue)
-        allocationView <- fetch settlementAllocationCid
-        let av = view allocationView
-        let leg = av.allocation.transferLeg
-        assertMsg "Allocation amount mismatch" (leg.amount == faceValue)
-        assertMsg "Payee mismatch" (leg.receiver == payeeOfRecord.payee)
-        assertMsg "Payer must be buyer" (leg.sender == buyer)
+        assertMsg "At least one settlement allocation required"
+          (not (null settlementAllocationCids))
+        case state of
+          PartiallySyndicated | not (null capTable) -> do
+            let capParticipants = map (.participant) capTable
+            assertMsg "Syndication participants must match cap table"
+              (sort syndicationParticipants == sort capParticipants)
+          _ ->
+            assertMsg "Non-syndicated repayment has no syndication participants"
+              (null syndicationParticipants)
+        allocationViews <- forA settlementAllocationCids fetch
+        let legs = map (\av -> (view av).allocation.transferLeg) allocationViews
+        let totalAllocated = sum (map (.amount) legs)
+        assertMsg "Allocations must sum to face value" (totalAllocated == faceValue)
+        forA_ legs (\leg -> do
+          assertMsg "Payer must be buyer" (leg.sender == buyer))
+        case state of
+          PartiallySyndicated | not (null capTable) -> do
+            let expected = computeWaterfall faceValue capTable payeeOfRecord.payee
+            let actual = map (\leg -> (leg.receiver, leg.amount)) legs
+            assertMsg "Waterfall allocation mismatch"
+              (MMap.fromListWith (+) expected == MMap.fromListWith (+) actual)
+          _ -> do
+            assertMsg "Non-syndicated repayment requires single allocation to payee"
+              (length legs == 1)
+            case legs of
+              [leg] -> assertMsg "Payee mismatch" (leg.receiver == payeeOfRecord.payee)
+              _ -> abort "expected single allocation leg"
         now <- getTime
-        _ <- exercise settlementAllocationCid AllocationV1.Allocation_ExecuteTransfer with
-          extraArgs = ExtraArgs with meta = emptyMetadata; context = emptyChoiceContext
+        forA_ settlementAllocationCids (\cid ->
+          exercise cid AllocationV1.Allocation_ExecuteTransfer with
+            extraArgs = ExtraArgs with meta = emptyMetadata; context = emptyChoiceContext)
         proofCid <- create RepaymentProof with
           receivableId
           payer = buyer

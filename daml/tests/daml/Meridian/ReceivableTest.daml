@@ -201,13 +201,10 @@ testStateTransitions = script do
       expectedAdvance = 1800.0
       settlementFinancier = financier
 
-  cid3 <- submit supplier do
-    exerciseCmd cid2 MarkPartiallySyndicated
+  cid3 <- submit buyer do
+    exerciseCmd cid2 MarkRepaid
 
-  cid4 <- submit buyer do
-    exerciseCmd cid3 MarkRepaid
-
-  Some final <- queryContractId supplier cid4
+  Some final <- queryContractId supplier cid3
   assert (final.state == Repaid)
 
   pure ()
@@ -232,8 +229,8 @@ testInvalidTransition = script do
   cid <- submit buyer do
     exerciseCmd proposalCid CoSignAndIssue
 
-  submitMustFail supplier do
-    exerciseCmd cid MarkPartiallySyndicated
+  submitMustFail buyer do
+    exerciseCmd cid MarkRepaid
 
   pure ()
 
@@ -321,7 +318,7 @@ testScuReceivableV010Compatibility = script do
   Some receivable <- queryContractId supplier receivableCid
   assert (receivable.jurisdiction == None)
   assert (null receivable.invitedFinanciers)
-  assert (null receivable.syndicationCapTable)
+  assert (null receivable.capTable)
   assert (receivable.fundedPricingHidden == False)
   assert (null receivable.bidHistory)
 

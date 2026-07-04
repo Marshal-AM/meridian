@@ -43,7 +43,7 @@ template ReceivableProposal
             payeeRole = "Supplier"
           jurisdiction = None
           invitedFinanciers = []
-          syndicationCapTable = []
+          capTable = []
           fundedPricingHidden = False
           bidHistory = []
           repaymentProofCid = None

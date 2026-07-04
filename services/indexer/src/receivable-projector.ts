@@ -1,11 +1,13 @@
 import type {
   BuyerReceivableView,
   ConsentPolicySummary,
+  LeadCapTableView,
   ReceivableProposalSummary,
   ReceivableState,
   SupplierReceivableView,
 } from "@meridian/shared-types";
 import { TEMPLATE_IDS } from "@meridian/ledger-client";
+import { parseCapTable } from "./syndication-projector.js";
 
 export function isReceivableTemplate(templateId: string): boolean {
   return (
@@ -109,6 +111,11 @@ export function projectBuyerView(
   };
 }
 
+/** Mirror of Daml supplierDisplayState: supplier must not see PartiallySyndicated. */
+function supplierDisplayState(state: string): ReceivableState {
+  return (state === "PartiallySyndicated" ? "Funded" : state) as ReceivableState;
+}
+
 export function projectSupplierView(
   contractId: string,
   payload: Record<string, unknown>
@@ -122,7 +129,7 @@ export function projectSupplierView(
     faceValue: str(payload.faceValue),
     currency: str(payload.currency),
     dueDate: str(payload.dueDate),
-    state: str(payload.state) as ReceivableState,
+    state: supplierDisplayState(str(payload.state)),
     assignmentConsentGranted: Boolean(payload.assignmentConsentGranted),
     payeeOfRecord: {
       payee: str(payeeOfRecord?.payee ?? payload.supplier),
@@ -191,4 +198,17 @@ export function projectRepaymentProof(
 
 export function isRepaymentProofTemplate(templateId: string): boolean {
   return templateId.includes("RepaymentProof");
+}
+
+export function projectLeadFinancierView(
+  contractId: string,
+  payload: Record<string, unknown>
+): LeadCapTableView {
+  return {
+    receivableId: str(payload.receivableId),
+    faceValue: str(payload.faceValue),
+    currency: str(payload.currency),
+    capTable: parseCapTable(payload.capTable),
+    syndicationState: str(payload.state) as ReceivableState,
+  };
 }

@@ -1,0 +1,171 @@
+module Meridian.Syndication.SyndicationOffering where
+
+import DA.Time
+import DA.Map as M
+import DA.Action (when)
+import DA.Foldable (forA_)
+import Meridian.Financing.Types
+import Meridian.Syndication.SyndicationBid
+import Meridian.Syndication.ParticipationInterest
+import Meridian.Syndication.Types
+import Meridian.Receivable.Receivable
+import Meridian.Receivable.Types
+
+-- | Lead-financier syndication round (§7.6, §9.4).
+-- Observers are invited participants only — buyer and supplier are never observers.
+template SyndicationOffering
+  with
+    offeringId : Text
+    receivableCid : ContractId Receivable
+    receivableId : Text
+    leadFinancier : Party
+    invitedParticipants : [Party]
+    deadline : Time
+    pricingBandMin : Decimal
+    pricingBandMax : Decimal
+    redstoneFeedId : [Int]
+    roundState : RoundState
+    activeBids : Map Party (ContractId SyndicationBid)
+    bidHistory : [Text]
+    faceValue : Decimal
+    currency : Text
+  where
+    signatory leadFinancier
+    observer invitedParticipants
+
+    ensure
+      pricingBandMin <= pricingBandMax
+      && not (Prelude.null invitedParticipants)
+
+    choice SubmitBid : (ContractId SyndicationOffering, ContractId SyndicationBid)
+      with
+        participant : Party
+        shareBps : Int
+        discountRate : Decimal
+        redstonePayload : Text
+        redstoneTimestampMs : Int
+        mode : BidPricingMode
+        ledgerTime : Time
+      controller participant
+      do
+        assertRoundOpen roundState
+        assertBeforeDeadline deadline
+        assertMsg "Participant not invited" (participant `elem` invitedParticipants)
+        assertMsg "Participant already has active bid" (not (M.member participant activeBids))
+        assertValidShareBps shareBps
+        bidCid <- createSyndicationBid
+          offeringId
+          participant
+          leadFinancier
+          shareBps
+          discountRate
+          redstonePayload
+          redstoneTimestampMs
+          mode
+          redstoneFeedId
+          pricingBandMin
+          pricingBandMax
+          ledgerTime
+        newCid <- create this with activeBids = M.insert participant bidCid activeBids
+        pure (newCid, bidCid)
+
+    choice ReplaceBid : (ContractId SyndicationOffering, ContractId SyndicationBid)
+      with
+        participant : Party
+        shareBps : Int
+        discountRate : Decimal
+        redstonePayload : Text
+        redstoneTimestampMs : Int
+        mode : BidPricingMode
+        ledgerTime : Time
+      controller participant
+      do
+        assertRoundOpen roundState
+        assertBeforeDeadline deadline
+        assertMsg "Participant not invited" (participant `elem` invitedParticipants)
+        priorBidCid <- case M.lookup participant activeBids of
+          None -> abort "No prior bid to replace"
+          Some cid -> pure cid
+        exercise priorBidCid LeadClose
+        bidCid <- createSyndicationBid
+          offeringId
+          participant
+          leadFinancier
+          shareBps
+          discountRate
+          redstonePayload
+          redstoneTimestampMs
+          mode
+          redstoneFeedId
+          pricingBandMin
+          pricingBandMax
+          ledgerTime
+        newCid <- create this with activeBids = M.insert participant bidCid activeBids
+        pure (newCid, bidCid)
+
+    choice PauseRound : ContractId SyndicationOffering
+      controller leadFinancier
+      do create this with roundState = Paused
+
+    choice EnterStaticReferenceFallback : ContractId SyndicationOffering
+      controller leadFinancier
+      do create this with roundState = StaticReferenceFallback
+
+    choice ExpireRound : ContractId SyndicationOffering
+      controller leadFinancier
+      do
+        now <- getTime
+        assertMsg "Round has not reached deadline" (now > deadline)
+        create this with roundState = Expired
+
+    choice AwardBid : ContractId Receivable
+      with
+        winningBidCid : ContractId SyndicationBid
+        winningParticipant : Party
+      controller leadFinancier, winningParticipant
+      do
+        assertRoundOpen roundState
+        assertBeforeDeadline deadline
+        winningBid <- fetch winningBidCid
+        assertMsg "Bid belongs to this offering" (winningBid.offeringId == offeringId)
+        assertMsg "Winning bid not active in this round"
+          (M.member winningBid.participant activeBids)
+        assertMsg "Winning bid contract mismatch"
+          (M.lookup winningBid.participant activeBids == Some winningBidCid)
+        assertMsg "Winning participant mismatch"
+          (winningBid.participant == winningParticipant)
+        receivable <- fetch receivableCid
+        assertMsg "Lead must be payee-of-record"
+          (receivable.payeeOfRecord.payee == leadFinancier)
+        assertMsg "Receivable must be Funded or PartiallySyndicated"
+          (receivable.state == Funded || receivable.state == PartiallySyndicated)
+        assertCapTableWithinLimit receivable.capTable winningBid.shareBps
+        let historyEntry =
+              show winningBid.participant
+                <> ":"
+                <> show winningBid.shareBps
+                <> "bps:"
+                <> winningBid.reportId
+        interestCid <- createParticipationInterest
+          receivableId
+          leadFinancier
+          winningBid.participant
+          winningBid.shareBps
+          faceValue
+          currency
+          historyEntry
+        let capEntry =
+              CapTableEntry with
+                participant = winningBid.participant
+                shareBps = winningBid.shareBps
+                entryRef = historyEntry
+        updatedReceivableCid <- exercise receivableCid ApplySyndication with
+          capEntry
+          historyEntry
+        exercise winningBidCid LeadClose
+        forA_ (map snd (M.toList activeBids)) (\cid -> when (cid /= winningBidCid) (exercise cid LeadClose))
+        _ <- create this with
+          roundState = Awarded
+          activeBids = M.empty
+          bidHistory = historyEntry :: bidHistory
+        pure updatedReceivableCid

@@ -3,6 +3,7 @@ module Meridian.Receivable.Interfaces where
 import DA.Time
 import Meridian.Receivable.Types
 import Meridian.Receivable.AssignmentConsentPolicy
+import Meridian.Syndication.Types (CapTableEntry)
 
 -- | Buyer-scoped view: payee, amount, due date only (§7.5, §8.3).
 data BuyerViewData = BuyerViewData
@@ -49,6 +50,30 @@ data FinancierViewData = FinancierViewData
 
 interface IFinancierView where
   viewtype FinancierViewData
+
+-- | Lead financier view: full cap table (§7.6).
+data LeadFinancierViewData = LeadFinancierViewData
+  with
+    receivableId : Text
+    faceValue : Decimal
+    currency : Text
+    capTable : [CapTableEntry]
+    syndicationState : ReceivableState
+  deriving (Eq, Show)
+
+interface ILeadFinancierView where
+  viewtype LeadFinancierViewData
+
+-- | Participant view: own slice only (§7.6).
+data ParticipantViewData = ParticipantViewData
+  with
+    receivableId : Text
+    shareBps : Int
+    leadFinancier : Party
+  deriving (Eq, Show)
+
+interface IParticipantView where
+  viewtype ParticipantViewData
 
 -- | Regulator-scoped view: jurisdiction + aggregate exposure only (Phase 7 activation).
 data RegulatorViewData = RegulatorViewData

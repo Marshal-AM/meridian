@@ -3,8 +3,12 @@ import type {
   BidComparisonRow,
   BidPricingMode,
   BidSummary,
+  CapTableEntry,
   FinancingRequestSummary,
+  ParticipationInterestSummary,
   RoundState,
+  SyndicationBidSummary,
+  SyndicationOfferingSummary,
 } from "@meridian/shared-types";
 
 const API = import.meta.env.VITE_API_URL ?? "/api";
@@ -57,6 +61,10 @@ export type {
   BidSummary,
   BidPricingMode,
   RoundState,
+  CapTableEntry,
+  SyndicationOfferingSummary,
+  SyndicationBidSummary,
+  ParticipationInterestSummary,
 };
 
 async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
@@ -196,6 +204,51 @@ export const api = {
       method: "POST",
       body: JSON.stringify(body),
     }),
+
+  getSyndicationOfferings: () =>
+    fetchJson<{ offerings: SyndicationOfferingSummary[] }>("/financier/syndication/offerings"),
+  getSyndicationInvitations: () =>
+    fetchJson<{ invitations: SyndicationOfferingSummary[] }>("/financier/syndication/invitations"),
+  getSyndicationInterests: (tab: "lead" | "participant") =>
+    fetchJson<{ interests: ParticipationInterestSummary[] }>(
+      `/financier/syndication/my-interests?tab=${tab}`
+    ),
+  getSyndicationCapTable: (receivableId: string) =>
+    fetchJson<{ receivableId: string; capTable: CapTableEntry[]; syndicationState: string }>(
+      `/financier/syndication/cap-table/${encodeURIComponent(receivableId)}`
+    ),
+  getSyndicationBids: (offeringContractId: string) =>
+    fetchJson<{ bids: SyndicationBidSummary[] }>(
+      `/financier/syndication/bids/${encodeURIComponent(offeringContractId)}`
+    ),
+  openSyndicationOffering: (body: {
+    receivableCid: string;
+    offeringId?: string;
+    participants?: string[];
+    deadline?: string;
+    pricingBandMin?: string;
+    pricingBandMax?: string;
+  }) =>
+    fetchJson<{ contractId: string }>("/syndication/open", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  submitSyndicationBid: (
+    offeringContractId: string,
+    body: { shareBps: number; discountRate: string; useStaticReference?: boolean }
+  ) =>
+    fetchJson<{ bidContractId: string }>(
+      `/syndication/${encodeURIComponent(offeringContractId)}/bid`,
+      { method: "POST", body: JSON.stringify(body) }
+    ),
+  awardSyndicationBid: (
+    offeringContractId: string,
+    body: { winningBidCid: string }
+  ) =>
+    fetchJson<{ receivableContractId: string }>(
+      `/syndication/${encodeURIComponent(offeringContractId)}/award`,
+      { method: "POST", body: JSON.stringify(body) }
+    ),
 };
 
 export function useNotifications(orgId: string, onEvent: () => void): void {

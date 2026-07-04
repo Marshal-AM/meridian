@@ -29,6 +29,13 @@ export function parseNotificationEvents(events: unknown[]): MeridianNotification
           contractId: str(exercised.contractId),
         });
       }
+      if (choice.includes("RepayWithProof")) {
+        out.push({
+          type: "syndication.waterfall_distributed",
+          receivableId: str(exercised.contractId),
+          contractId: str(exercised.contractId),
+        });
+      }
     }
 
     const created =
@@ -105,6 +112,28 @@ export function parseNotificationEvents(events: unknown[]): MeridianNotification
         type: "receivable.repaid",
         receivableId: str(args.receivableId),
         contractId,
+      });
+    }
+
+    if (templateId.includes("SyndicationOffering:SyndicationOffering")) {
+      const offeringId = str(args.offeringId);
+      const roundState = str(args.roundState);
+      const bidHistory = Array.isArray(args.bidHistory) ? args.bidHistory : [];
+      if (roundState === "RoundOpen" && bidHistory.length === 0) {
+        out.push({ type: "syndication.opened", offeringId, contractId });
+      } else if (roundState === "Awarded") {
+        const historyEntry = bidHistory.length > 0 ? str(bidHistory[0]) : "";
+        const winningBidCid = historyEntry.split(":")[2] ?? "";
+        out.push({ type: "syndication.awarded", offeringId, contractId, winningBidCid });
+      }
+    }
+
+    if (templateId.includes("SyndicationBid:SyndicationBid")) {
+      out.push({
+        type: "syndication.bid_submitted",
+        offeringId: str(args.offeringId),
+        bidContractId: contractId,
+        participant: str(args.participant),
       });
     }
   }
