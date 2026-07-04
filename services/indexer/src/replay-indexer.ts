@@ -261,7 +261,7 @@ export class ReplayIndexer {
           archived: false,
         });
       }
-      if (this.config.role === "Supplier") {
+      if (this.config.role === "Supplier" || this.config.role === "Financier") {
         const view = projectSupplierView(contractId, payload);
         this.store.projections.upsertProjection({
           contractId,

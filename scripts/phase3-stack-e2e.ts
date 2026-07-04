@@ -465,6 +465,7 @@ async function main(): Promise<void> {
     assert.equal(supplierView.payeeOfRecord.payee, financierA);
     assert.ok(Array.isArray(supplierView.lineItems) && supplierView.lineItems.length > 0);
     console.log("   supplier ISupplierView funded state + financier payee ✓");
+    const fundedReceivableBusinessId = supplierView.receivableId;
 
     console.log("11. Verifying supplier MUSD balance increased after DvP...");
     const supplierMusd = await musdBalance(client, supplier, cash.registryAdminPartyId);
@@ -497,20 +498,30 @@ async function main(): Promise<void> {
       (body) =>
         (body.repaymentProofs ?? []).some((p) => p.receivableId) &&
         (body.receivables ?? []).some(
-          (r) => r.contractId === fundedReceivableCid && r.state === "Repaid"
+          // receivableId (business key) matches; contractId changes after RepayWithProof
+          (r) => r.receivableId === fundedReceivableBusinessId && r.state === "Repaid"
         )
     );
     assert.ok(portfolio.repaymentProofs.length > 0, "repayment proof on portfolio");
     console.log("   supplier portfolio + proof ✓");
 
     console.log("14. Financier positions show Repaid...");
-    const positionsRes = await fetch(`${PORTAL_API}/financier/positions`);
-    const positionsBody = (await positionsRes.json()) as {
-      positions: SupplierReceivable[];
-    };
+    const positions = await pollUntil(
+      "financier position repaid",
+      async () => {
+        const res = await fetch(`${PORTAL_API}/financier/positions`);
+        const body = (await res.json()) as { positions: SupplierReceivable[] };
+        return body.positions ?? [];
+      },
+      // receivableId (business key) — contractId changes after RepayWithProof
+      (rows) =>
+        rows.some(
+          (p) => p.receivableId === fundedReceivableBusinessId && p.state === "Repaid"
+        )
+    );
     assert.ok(
-      positionsBody.positions?.some(
-        (p) => p.contractId === fundedReceivableCid && p.state === "Repaid"
+      positions.some(
+        (p) => p.receivableId === fundedReceivableBusinessId && p.state === "Repaid"
       ),
       "financier position repaid"
     );

@@ -41,12 +41,25 @@ export async function awardWithDvP(
   const weekLater = new Date(Date.now() + 7 * 86400000).toISOString();
   const twoWeeks = new Date(Date.now() + 14 * 86400000).toISOString();
 
-  const holdings = await client.getActiveContractsByInterface(
+  // Query MusdHolding contracts by template (more reliable than interface query).
+  // Use ALL holdings so consumeHoldingAmount can sum them to meet the allocation amount.
+  const holdingRows = await client.getActiveContractsByTemplate(
     params.financier,
-    CIP56_INTERFACES.holding
+    CASH.musdHolding
   );
-  const holdingCid = holdings.find((h) => h.templateId.includes("MusdHolding"))?.contractId;
-  if (!holdingCid) throw new Error("financier has no MUSD holding");
+  const holdingCids = holdingRows
+    .filter((h) => {
+      const p = h.payload as {
+        holding?: { instrumentId?: { id?: string; admin?: string }; lock?: unknown };
+      };
+      return (
+        p.holding?.instrumentId?.id === "MUSD" &&
+        p.holding?.instrumentId?.admin === cash.registryAdminPartyId &&
+        !p.holding?.lock
+      );
+    })
+    .map((h) => h.contractId);
+  if (holdingCids.length === 0) throw new Error("financier has no MUSD holding");
 
   const allocResult = await client.submitAndWaitForTransaction({
     actAs: [params.financier, cash.registryAdminPartyId],
@@ -58,7 +71,7 @@ export async function awardWithDvP(
         financier: params.financier,
         supplier: params.supplier,
         advanceAmount: params.advanceAmount,
-        inputHoldingCids: [holdingCid],
+        inputHoldingCids: holdingCids,
         requestedAt: now,
         allocateBefore: weekLater,
         settleBefore: twoWeeks,
@@ -103,12 +116,24 @@ export async function repayWithProof(
   const weekLater = new Date(Date.now() + 7 * 86400000).toISOString();
   const twoWeeks = new Date(Date.now() + 14 * 86400000).toISOString();
 
-  const holdings = await client.getActiveContractsByInterface(
+  // Use ALL buyer MusdHolding contracts so consumeHoldingAmount can sum to faceValue.
+  const buyerHoldingRows = await client.getActiveContractsByTemplate(
     params.buyer,
-    CIP56_INTERFACES.holding
+    CASH.musdHolding
   );
-  const holdingCid = holdings.find((h) => h.templateId.includes("MusdHolding"))?.contractId;
-  if (!holdingCid) throw new Error("buyer has no MUSD holding");
+  const buyerHoldingCids = buyerHoldingRows
+    .filter((h) => {
+      const p = h.payload as {
+        holding?: { instrumentId?: { id?: string; admin?: string }; lock?: unknown };
+      };
+      return (
+        p.holding?.instrumentId?.id === "MUSD" &&
+        p.holding?.instrumentId?.admin === cash.registryAdminPartyId &&
+        !p.holding?.lock
+      );
+    })
+    .map((h) => h.contractId);
+  if (buyerHoldingCids.length === 0) throw new Error("buyer has no MUSD holding");
 
   const allocResult = await client.submitAndWaitForTransaction({
     actAs: [params.buyer, cash.registryAdminPartyId],
@@ -120,7 +145,7 @@ export async function repayWithProof(
         financier: params.buyer,
         supplier: params.payee,
         advanceAmount: params.faceValue,
-        inputHoldingCids: [holdingCid],
+        inputHoldingCids: buyerHoldingCids,
         requestedAt: now,
         allocateBefore: weekLater,
         settleBefore: twoWeeks,

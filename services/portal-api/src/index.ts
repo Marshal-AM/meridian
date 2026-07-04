@@ -421,7 +421,15 @@ async function handleRequest(
     }
 
     if (req.method === "GET" && url.pathname === "/financier/positions") {
-      json(res, 200, await proxyGet(`${FINANCIER_INDEXER}/financier/positions`));
+      // Financier is not an observer on Receivable contracts, so we query the
+      // supplier indexer (which sees all Receivables as signatory) filtered by
+      // payeeOfRecord.payee === financierA.
+      const financierPartyId = encodeURIComponent(parties.financierA.partyId);
+      json(
+        res,
+        200,
+        await proxyGet(`${SUPPLIER_INDEXER}/financier/positions/${financierPartyId}`)
+      );
       return;
     }
 
@@ -440,12 +448,23 @@ async function handleRequest(
       const weekLater = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
       const twoWeeks = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString();
 
-      const buyerHoldings = await client.getActiveContractsByInterface(
+      const buyerHoldingRows = await client.getActiveContractsByTemplate(
         parties.buyer.partyId,
-        CIP56_INTERFACES.holding
+        CASH.musdHolding
       );
-      const holdingCid = buyerHoldings.find((h) => h.templateId.includes("MusdHolding"))?.contractId;
-      if (!holdingCid) {
+      const buyerHoldingCids = buyerHoldingRows
+        .filter((h) => {
+          const p = h.payload as {
+            holding?: { instrumentId?: { id?: string; admin?: string }; lock?: unknown };
+          };
+          return (
+            p.holding?.instrumentId?.id === "MUSD" &&
+            p.holding?.instrumentId?.admin === cash.registryAdminPartyId &&
+            !p.holding?.lock
+          );
+        })
+        .map((h) => h.contractId);
+      if (buyerHoldingCids.length === 0) {
         json(res, 400, { error: "buyer has no MUSD holdings" });
         return;
       }
@@ -460,7 +479,7 @@ async function handleRequest(
             financier: parties.buyer.partyId,
             supplier: payee,
             advanceAmount: amount,
-            inputHoldingCids: [holdingCid],
+            inputHoldingCids: buyerHoldingCids,
             requestedAt: now,
             allocateBefore: weekLater,
             settleBefore: twoWeeks,
@@ -486,7 +505,7 @@ async function handleRequest(
       });
 
       json(res, 200, {
-        receivableContractId: extractCreatedContractId(result),
+        receivableContractId: extractCreatedContractId(result, "Receivable"),
         proofContractId: extractCreatedContractId(result, "RepaymentProof"),
         transaction: result.transaction?.updateId,
       });

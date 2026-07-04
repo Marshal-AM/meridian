@@ -126,6 +126,27 @@ async function handleRequest(
       return;
     }
 
+    // Allow portal-api to query financier positions from the supplier indexer,
+    // since the financier is not an observer on Receivable contracts.
+    const financierPositionsParty = (() => {
+      const parts = url.split("?")[0]?.split("/").filter(Boolean) ?? [];
+      if (
+        config.role === "Supplier" &&
+        parts[0] === "financier" &&
+        parts[1] === "positions" &&
+        parts[2]
+      ) {
+        return decodeURIComponent(parts[2]);
+      }
+      return null;
+    })();
+    if (financierPositionsParty) {
+      json(res, 200, {
+        positions: store.getFinancierPositions(financierPositionsParty),
+      });
+      return;
+    }
+
     if (config.role === "Financier" && url === "/financier/positions") {
       json(res, 200, {
         positions: store.getFinancierPositions(config.actingParty ?? ""),
