@@ -13,17 +13,11 @@ import { Badge } from "../components/ui/Badge";
 import { Button } from "../components/ui/Button";
 import { Card, Surface } from "../components/ui/Surface";
 import { CustomSelect } from "../components/ui/CustomSelect";
-import { Checkbox, Field, FieldGroup, FieldLabel } from "../components/ui/Field";
+import { ChoiceCard, ChoiceCardGroup } from "../components/ui/ChoiceCard";
+import { DataTable } from "../components/ui/DataTable";
+import { Field, FieldGroup, FieldLabel } from "../components/ui/Field";
 import { Input } from "../components/ui/Input";
 import { PageTabBar } from "../components/ui/PageTabBar";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "../components/ui/Table";
 import { truncateParty } from "../lib/utils";
 
 function defaultDeadline(): string {
@@ -304,16 +298,23 @@ export function SupplierFinancingPage() {
                   />
                 </Field>
               </div>
-              <div className="flex flex-wrap gap-4">
-                <label className="flex cursor-pointer items-center gap-2.5 text-sm">
-                  <Checkbox checked={inviteA} onChange={(e) => setInviteA(e.target.checked)} />
-                  Invite Financier A
-                </label>
-                <label className="flex cursor-pointer items-center gap-2.5 text-sm">
-                  <Checkbox checked={inviteB} onChange={(e) => setInviteB(e.target.checked)} />
-                  Invite Financier B
-                </label>
-              </div>
+              <Field>
+                <FieldLabel>Financier invitations</FieldLabel>
+                <ChoiceCardGroup>
+                  <ChoiceCard
+                    selected={inviteA}
+                    onSelectedChange={setInviteA}
+                    title="Invite Financier A"
+                    description="Include the first sealed-bid participant in this round."
+                  />
+                  <ChoiceCard
+                    selected={inviteB}
+                    onSelectedChange={setInviteB}
+                    title="Invite Financier B"
+                    description="Include the second sealed-bid participant in this round."
+                  />
+                </ChoiceCardGroup>
+              </Field>
               <Button type="submit">
                 <Clock className="size-4" />
                 Open Round
@@ -397,59 +398,75 @@ export function SupplierFinancingPage() {
                   {(bidMap[round.contractId] ?? []).length === 0 ? (
                     <EmptyState>No bids yet.</EmptyState>
                   ) : (
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>Rank</TableHead>
-                          <TableHead>Financier</TableHead>
-                          <TableHead>Advance</TableHead>
-                          <TableHead>Discount</TableHead>
-                          <TableHead>Effective Rate</TableHead>
-                          <TableHead>Mode</TableHead>
-                          <TableHead>Oracle</TableHead>
-                          <TableHead />
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {(bidMap[round.contractId] ?? []).map((bid) => (
-                          <TableRow key={bid.bidContractId}>
-                            <TableCell>{bid.rank}</TableCell>
-                            <TableCell>{truncateParty(bid.financier, 18)}</TableCell>
-                            <TableCell>{bid.advanceAmount}</TableCell>
-                            <TableCell>{bid.discountRate}</TableCell>
-                            <TableCell>{bid.effectiveRate}</TableCell>
-                            <TableCell>
-                              <Badge variant="outline">{bid.mode}</Badge>
-                            </TableCell>
-                            <TableCell>
-                              <Badge variant={bid.oracleFresh ? "success" : "destructive"}>
-                                {bid.oracleFresh ? "fresh" : "stale"}
-                              </Badge>
-                            </TableCell>
-                            <TableCell>
-                              {round.roundState === "RoundOpen" ||
-                              round.roundState === "StaticReferenceFallback" ? (
-                                <Button
-                                  type="button"
-                                  size="sm"
-                                  onClick={() =>
-                                    handleAward(
-                                      round.contractId,
-                                      bid.bidContractId,
-                                      bid.advanceAmount,
-                                      bid.financier
-                                    )
-                                  }
-                                >
-                                  <Award className="size-3.5" />
-                                  Award (DvP)
-                                </Button>
-                              ) : null}
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
+                    <DataTable
+                      data={bidMap[round.contractId] ?? []}
+                      rowKey={(bid) => bid.bidContractId}
+                      emptyMessage="No bids yet."
+                      detailTitle={(bid) => `Rank ${bid.rank} · ${truncateParty(bid.financier, 24)}`}
+                      detailFields={(bid) => [
+                        { label: "Financier", value: bid.financier, mono: true },
+                        { label: "Advance", value: bid.advanceAmount },
+                        { label: "Discount", value: bid.discountRate },
+                        { label: "Effective rate", value: bid.effectiveRate },
+                        { label: "Mode", value: bid.mode },
+                        { label: "Oracle", value: bid.oracleFresh ? "Fresh" : "Stale" },
+                        { label: "Bid contract", value: bid.bidContractId, mono: true },
+                      ]}
+                      columns={[
+                        { id: "rank", header: "Rank", cell: (bid) => bid.rank },
+                        {
+                          id: "financier",
+                          header: "Financier",
+                          cell: (bid) => truncateParty(bid.financier, 18),
+                        },
+                        { id: "advance", header: "Advance", cell: (bid) => bid.advanceAmount },
+                        { id: "discount", header: "Discount", cell: (bid) => bid.discountRate },
+                        {
+                          id: "effective",
+                          header: "Effective rate",
+                          cell: (bid) => bid.effectiveRate,
+                        },
+                        {
+                          id: "mode",
+                          header: "Mode",
+                          cell: (bid) => <Badge variant="outline">{bid.mode}</Badge>,
+                        },
+                        {
+                          id: "oracle",
+                          header: "Oracle",
+                          cell: (bid) => (
+                            <Badge variant={bid.oracleFresh ? "success" : "destructive"}>
+                              {bid.oracleFresh ? "fresh" : "stale"}
+                            </Badge>
+                          ),
+                        },
+                        {
+                          id: "action",
+                          header: "",
+                          isAction: true,
+                          align: "right",
+                          cell: (bid) =>
+                            round.roundState === "RoundOpen" ||
+                            round.roundState === "StaticReferenceFallback" ? (
+                              <Button
+                                type="button"
+                                size="sm"
+                                onClick={() =>
+                                  handleAward(
+                                    round.contractId,
+                                    bid.bidContractId,
+                                    bid.advanceAmount,
+                                    bid.financier
+                                  )
+                                }
+                              >
+                                <Award className="size-3.5" />
+                                Award (DvP)
+                              </Button>
+                            ) : null,
+                        },
+                      ]}
+                    />
                   )}
                 </div>
               </Card>

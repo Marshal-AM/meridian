@@ -4,16 +4,9 @@ import { api, useNotifications, type BuyerObligation, type ReceivableProposal } 
 import { usePageTab } from "../hooks/usePageTab";
 import { Alert, EmptyState, PageHeader } from "../components/ui/Alert";
 import { Button } from "../components/ui/Button";
+import { DataTable } from "../components/ui/DataTable";
 import { Card } from "../components/ui/Surface";
 import { PageTabBar } from "../components/ui/PageTabBar";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "../components/ui/Table";
 import { truncateParty } from "../lib/utils";
 
 export function BuyerPage() {
@@ -61,6 +54,15 @@ export function BuyerPage() {
     } catch (err) {
       setError(String(err));
     }
+  }
+
+  function canRepay(o: BuyerObligation) {
+    return (
+      o.state === "Funded" ||
+      o.state === "PartiallySyndicated" ||
+      o.state === "Overdue" ||
+      !o.state
+    );
   }
 
   return (
@@ -113,42 +115,58 @@ export function BuyerPage() {
           {obligations.length === 0 ? (
             <EmptyState>No outstanding obligations.</EmptyState>
           ) : (
-            <Card className="overflow-hidden p-0">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Invoice</TableHead>
-                    <TableHead>Payee</TableHead>
-                    <TableHead>Amount</TableHead>
-                    <TableHead>Due Date</TableHead>
-                    <TableHead>Action</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {obligations.map((o) => (
-                    <TableRow key={o.contractId}>
-                      <TableCell className="font-medium">{o.receivableId}</TableCell>
-                      <TableCell>{truncateParty(o.payee, 20)}</TableCell>
-                      <TableCell>
-                        {o.faceValue} {o.currency}
-                      </TableCell>
-                      <TableCell>{o.dueDate}</TableCell>
-                      <TableCell>
-                        {(o.state === "Funded" ||
-                          o.state === "PartiallySyndicated" ||
-                          o.state === "Overdue" ||
-                          !o.state) && (
-                          <Button type="button" size="sm" onClick={() => repay(o)}>
-                            <CreditCard className="size-3.5" />
-                            Repay obligation
-                          </Button>
-                        )}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </Card>
+            <DataTable
+              data={obligations}
+              rowKey={(o) => o.contractId}
+              emptyMessage="No outstanding obligations."
+              detailTitle={(o) => o.receivableId}
+              detailDescription={(o) => `${o.faceValue} ${o.currency} · due ${o.dueDate}`}
+              detailFields={(o) => [
+                { label: "Invoice", value: o.receivableId },
+                { label: "Payee", value: truncateParty(o.payee, 40), mono: true },
+                { label: "Amount", value: `${o.faceValue} ${o.currency}` },
+                { label: "Due date", value: o.dueDate },
+                { label: "State", value: o.state ?? "—" },
+                { label: "Contract ID", value: o.contractId, mono: true },
+              ]}
+              columns={[
+                {
+                  id: "invoice",
+                  header: "Invoice",
+                  cell: (o) => <span className="font-medium">{o.receivableId}</span>,
+                },
+                {
+                  id: "payee",
+                  header: "Payee",
+                  cell: (o) => truncateParty(o.payee, 20),
+                },
+                {
+                  id: "amount",
+                  header: "Amount",
+                  cell: (o) => `${o.faceValue} ${o.currency}`,
+                },
+                {
+                  id: "due",
+                  header: "Due date",
+                  cell: (o) => o.dueDate,
+                },
+                {
+                  id: "action",
+                  header: "Action",
+                  isAction: true,
+                  align: "right",
+                  cell: (o) =>
+                    canRepay(o) ? (
+                      <Button type="button" size="sm" onClick={() => repay(o)}>
+                        <CreditCard className="size-3.5" />
+                        Repay
+                      </Button>
+                    ) : (
+                      <span className="text-muted-foreground">—</span>
+                    ),
+                },
+              ]}
+            />
           )}
         </div>
       )}

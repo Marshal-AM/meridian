@@ -1,14 +1,17 @@
+import type { ReactNode } from "react";
 import { cn } from "../../lib/utils";
 
 export function Surface({
   className,
   emphasis = false,
   title,
+  action,
   children,
   ...props
 }: React.HTMLAttributes<HTMLElement> & {
   emphasis?: boolean;
   title?: string;
+  action?: ReactNode;
 }) {
   return (
     <section
@@ -21,7 +24,7 @@ export function Surface({
       {...props}
     >
       {title && (
-        <header className="mb-4">
+        <header className="mb-4 flex items-start justify-between gap-4">
           <h3
             className={cn(
               "font-heading text-base font-semibold",
@@ -30,6 +33,7 @@ export function Surface({
           >
             {title}
           </h3>
+          {action ? <div className="shrink-0">{action}</div> : null}
         </header>
       )}
       {children}

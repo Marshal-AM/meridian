@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { ChevronRight } from "lucide-react";
+import { cn } from "../../lib/utils";
 import { Dialog } from "./Dialog";
 import { DetailList, DetailRow } from "./DetailList";
 import { EmptyState } from "./Alert";
@@ -22,12 +23,15 @@ interface RecordCardGridProps {
   items: RecordCardItem[];
   dialogTitle?: string;
   emptyMessage?: string;
+  /** Cap visible height to this many grid rows; overflow scrolls inside the viewport. */
+  maxRows?: number;
 }
 
 export function RecordCardGrid({
   items,
   dialogTitle = "Record details",
   emptyMessage = "No records to display.",
+  maxRows,
 }: RecordCardGridProps) {
   const [selected, setSelected] = useState<RecordCardItem | null>(null);
 
@@ -37,36 +41,47 @@ export function RecordCardGrid({
 
   return (
     <>
-      <div className="record-card-grid">
-        {items.map((item) => (
-          <button
-            key={item.key}
-            type="button"
-            className="record-card"
-            onClick={() => setSelected(item)}
-          >
-            <div className="record-card__head">
-              <div className="min-w-0 flex-1 text-left">
-                <p className="record-card__title">{item.title}</p>
-                {item.subtitle ? (
-                  <p className="record-card__subtitle">{item.subtitle}</p>
-                ) : null}
+      <div
+        className={cn(maxRows != null && "record-card-grid-viewport")}
+        style={
+          maxRows != null
+            ? ({ "--record-card-max-rows": maxRows } as React.CSSProperties)
+            : undefined
+        }
+      >
+        <div className="record-card-grid">
+          {items.map((item) => (
+            <button
+              key={item.key}
+              type="button"
+              className="record-card"
+              onClick={() => setSelected(item)}
+            >
+              <div className="record-card__head">
+                <div className="min-w-0 flex-1 text-left">
+                  <p className="record-card__title">{item.title}</p>
+                  {item.subtitle ? (
+                    <p className="record-card__subtitle">{item.subtitle}</p>
+                  ) : null}
+                </div>
+                <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
               </div>
-              <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
-            </div>
-            {item.badge ? <span className="record-card__badge">{item.badge}</span> : null}
-            {item.fields.length > 0 ? (
-              <dl className="record-card__preview">
-                {item.fields.slice(0, 2).map((field) => (
-                  <div key={field.label} className="record-card__preview-row">
-                    <dt>{field.label}</dt>
-                    <dd className={field.mono ? "font-mono text-xs" : undefined}>{field.value}</dd>
-                  </div>
-                ))}
-              </dl>
-            ) : null}
-          </button>
-        ))}
+              {item.badge ? <span className="record-card__badge">{item.badge}</span> : null}
+              {item.fields.length > 0 ? (
+                <dl className="record-card__preview">
+                  {item.fields.slice(0, 2).map((field) => (
+                    <div key={field.label} className="record-card__preview-row">
+                      <dt>{field.label}</dt>
+                      <dd className={field.mono ? "font-mono text-xs" : undefined}>
+                        {field.value}
+                      </dd>
+                    </div>
+                  ))}
+                </dl>
+              ) : null}
+            </button>
+          ))}
+        </div>
       </div>
 
       <Dialog

@@ -461,6 +461,197 @@
   white-space: nowrap;
 }
 
+.record-card-grid-viewport {
+  --record-card-row-h: 10.5rem;
+  max-height: calc(
+    var(--record-card-max-rows, 2) * var(--record-card-row-h) +
+      (var(--record-card-max-rows, 2) - 1) * 0.75rem
+  );
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  padding-right: 0.125rem;
+}
+
+/* Data table (ui-ref inspired) */
+.data-table {
+  --data-table-row-h: 2.75rem;
+  --data-table-head-h: 2.25rem;
+  --data-table-visible-rows: 10;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: calc(var(--radius) * 2);
+  border: 1px solid color-mix(in oklch, var(--border) 80%, transparent);
+  background: color-mix(in oklch, var(--card) 92%, transparent);
+  box-shadow: 0 8px 24px -12px rgb(0 0 0 / 0.45);
+}
+
+.data-table__viewport {
+  max-height: calc(
+    var(--data-table-head-h) + var(--data-table-visible-rows) * var(--data-table-row-h)
+  );
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
+.data-table__table {
+  width: 100%;
+}
+
+.data-table__head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: color-mix(in oklch, var(--background) 88%, var(--card));
+  backdrop-filter: blur(8px);
+}
+
+.data-table__head tr {
+  border-bottom: 1px solid var(--border);
+}
+
+.data-table__row--interactive:hover {
+  background: color-mix(in oklch, var(--primary) 6%, var(--muted));
+}
+
+.data-table__empty {
+  display: flex;
+  min-height: calc(
+    var(--data-table-head-h) + var(--data-table-visible-rows) * var(--data-table-row-h)
+  );
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+}
+
+.data-table__footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  border-top: 1px solid color-mix(in oklch, var(--border) 70%, transparent);
+  background: color-mix(in oklch, var(--muted) 25%, var(--card));
+  padding: 0.625rem 1rem;
+}
+
+.data-table__range {
+  font-size: 0.75rem;
+  color: var(--muted-foreground);
+}
+
+.data-table__pager {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.data-table__page-indicator {
+  min-width: 6.5rem;
+  text-align: center;
+  font-size: 0.75rem;
+  color: var(--muted-foreground);
+}
+
+/* Compact form choice toggles (separate from landing .choice-card) */
+.choice-field-group {
+  display: grid;
+  gap: 0.5rem;
+  max-width: 28rem;
+}
+
+@media (min-width: 640px) {
+  .choice-field-group {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    max-width: 36rem;
+  }
+
+  .choice-field-group .choice-field {
+    max-width: none;
+  }
+}
+
+.choice-field {
+  display: inline-flex;
+  width: auto;
+  max-width: 28rem;
+  align-items: flex-start;
+  gap: 0.5rem;
+  padding: 0.5rem 0.625rem;
+  text-align: left;
+  border-radius: calc(var(--radius) * 1.5);
+  border: 1px solid color-mix(in oklch, var(--border) 70%, transparent);
+  background: color-mix(in oklch, var(--muted) 30%, transparent);
+  cursor: pointer;
+  transition:
+    border-color 0.15s ease,
+    background-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.choice-field:hover:not(:disabled) {
+  border-color: color-mix(in oklch, var(--primary) 28%, var(--border));
+  background: color-mix(in oklch, var(--primary) 5%, var(--card));
+}
+
+.choice-field--selected {
+  border-color: color-mix(in oklch, var(--primary) 50%, var(--border));
+  background: color-mix(in oklch, var(--primary) 10%, var(--card));
+  box-shadow: 0 0 0 1px color-mix(in oklch, var(--primary) 20%, transparent);
+}
+
+.choice-field:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.choice-field__indicator {
+  display: flex;
+  height: 0.875rem;
+  width: 0.875rem;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  margin-top: 0.1rem;
+  border-radius: 0.25rem;
+  border: 1px solid color-mix(in oklch, var(--border) 80%, transparent);
+  background: color-mix(in oklch, var(--background) 60%, transparent);
+  color: transparent;
+  transition:
+    border-color 0.15s ease,
+    background-color 0.15s ease,
+    color 0.15s ease;
+}
+
+.choice-field__indicator--selected {
+  border-color: var(--primary);
+  background: color-mix(in oklch, var(--primary) 16%, transparent);
+  color: var(--primary);
+}
+
+.choice-field__content {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 0.125rem;
+}
+
+.choice-field__title {
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--foreground);
+}
+
+.choice-field__description {
+  font-size: 0.6875rem;
+  line-height: 1.35;
+  color: var(--muted-foreground);
+}
+
 /* Form controls (zklaim-style) */
 .input-field {
   width: 100%;

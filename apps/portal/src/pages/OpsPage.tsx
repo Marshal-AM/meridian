@@ -11,18 +11,11 @@ import { usePageTab } from "../hooks/usePageTab";
 import { Alert, InlineCode, PageHeader } from "../components/ui/Alert";
 import { Badge } from "../components/ui/Badge";
 import { Button } from "../components/ui/Button";
-import { Card, Surface } from "../components/ui/Surface";
+import { Surface } from "../components/ui/Surface";
 import { Field, FieldGroup, FieldLabel } from "../components/ui/Field";
 import { Input } from "../components/ui/Input";
 import { PageTabBar } from "../components/ui/PageTabBar";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "../components/ui/Table";
+import { DataTable } from "../components/ui/DataTable";
 
 export function OpsPage() {
   const [tab, setTab] = usePageTab(["monitors", "regulator", "kyb"] as const, "monitors");
@@ -243,43 +236,58 @@ export function OpsPage() {
         </form>
 
         {grants.length > 0 && (
-          <Card className="mb-6 p-0 overflow-hidden">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Grant</TableHead>
-                  <TableHead>Jurisdiction</TableHead>
-                  <TableHead>Active</TableHead>
-                  <TableHead />
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {grants.map((g) => (
-                  <TableRow key={g.contractId}>
-                    <TableCell>{g.grantId}</TableCell>
-                    <TableCell>{g.jurisdiction}</TableCell>
-                    <TableCell>
-                      <Badge variant={g.active ? "success" : "muted"}>
-                        {g.active ? "yes" : "no"}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>
-                      {g.active && (
-                        <Button
-                          type="button"
-                          variant="destructive"
-                          size="sm"
-                          onClick={() => api.revokeOpsRegulatorGrant(g.contractId).then(refresh)}
-                        >
-                          Revoke
-                        </Button>
-                      )}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </Card>
+          <div className="mb-6">
+            <DataTable
+              data={grants}
+              rowKey={(g) => g.contractId}
+              emptyMessage="No jurisdiction grants."
+              detailTitle={(g) => g.grantId}
+              detailFields={(g) => [
+                { label: "Grant ID", value: g.grantId },
+                { label: "Jurisdiction", value: g.jurisdiction },
+                { label: "Active", value: g.active ? "Yes" : "No" },
+                { label: "Contract ID", value: g.contractId, mono: true },
+              ]}
+              columns={[
+                {
+                  id: "grant",
+                  header: "Grant",
+                  cell: (g) => <span className="font-medium">{g.grantId}</span>,
+                },
+                {
+                  id: "jurisdiction",
+                  header: "Jurisdiction",
+                  cell: (g) => g.jurisdiction,
+                },
+                {
+                  id: "active",
+                  header: "Active",
+                  cell: (g) => (
+                    <Badge variant={g.active ? "success" : "muted"}>
+                      {g.active ? "yes" : "no"}
+                    </Badge>
+                  ),
+                },
+                {
+                  id: "action",
+                  header: "",
+                  isAction: true,
+                  align: "right",
+                  cell: (g) =>
+                    g.active ? (
+                      <Button
+                        type="button"
+                        variant="destructive"
+                        size="sm"
+                        onClick={() => api.revokeOpsRegulatorGrant(g.contractId).then(refresh)}
+                      >
+                        Revoke
+                      </Button>
+                    ) : null,
+                },
+              ]}
+            />
+          </div>
         )}
 
         <form onSubmit={handleGrantObserver} className="mb-6">
@@ -310,26 +318,34 @@ export function OpsPage() {
         {rollups.length > 0 && (
           <div>
             <h3 className="mb-3 font-heading text-sm font-semibold">Regulator exposure rollups</h3>
-            <Card className="p-0 overflow-hidden">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Jurisdiction</TableHead>
-                    <TableHead>Total exposure</TableHead>
-                    <TableHead>Receivables</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {rollups.map((r) => (
-                    <TableRow key={r.jurisdiction}>
-                      <TableCell>{r.jurisdiction}</TableCell>
-                      <TableCell>{r.totalExposure}</TableCell>
-                      <TableCell>{r.receivableCount}</TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </Card>
+            <DataTable
+              data={rollups}
+              rowKey={(r) => r.jurisdiction}
+              emptyMessage="No exposure rollups."
+              detailTitle={(r) => r.jurisdiction}
+              detailFields={(r) => [
+                { label: "Jurisdiction", value: r.jurisdiction },
+                { label: "Total exposure", value: r.totalExposure },
+                { label: "Receivables", value: String(r.receivableCount) },
+              ]}
+              columns={[
+                {
+                  id: "jurisdiction",
+                  header: "Jurisdiction",
+                  cell: (r) => <span className="font-medium">{r.jurisdiction}</span>,
+                },
+                {
+                  id: "exposure",
+                  header: "Total exposure",
+                  cell: (r) => r.totalExposure,
+                },
+                {
+                  id: "receivables",
+                  header: "Receivables",
+                  cell: (r) => r.receivableCount,
+                },
+              ]}
+            />
           </div>
         )}
       </Surface>

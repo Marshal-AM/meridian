@@ -5,8 +5,10 @@ import { usePageTab } from "../hooks/usePageTab";
 import { Alert, EmptyState, PageHeader } from "../components/ui/Alert";
 import { Badge } from "../components/ui/Badge";
 import { Button } from "../components/ui/Button";
+import { ChoiceCard } from "../components/ui/ChoiceCard";
+import { Dialog } from "../components/ui/Dialog";
 import { Card, Surface } from "../components/ui/Surface";
-import { Checkbox, Field, FieldDescription, FieldGroup, FieldLabel } from "../components/ui/Field";
+import { Field, FieldDescription, FieldGroup, FieldLabel } from "../components/ui/Field";
 import { Input } from "../components/ui/Input";
 import { PageTabBar } from "../components/ui/PageTabBar";
 import { objectToRecordFields, RecordCardGrid } from "../components/ui/RecordCardGrid";
@@ -35,6 +37,7 @@ export function SupplierPage() {
   const [success, setSuccess] = useState("");
   const [proposing, setProposing] = useState(false);
   const [creatingPolicy, setCreatingPolicy] = useState(false);
+  const [registerOpen, setRegisterOpen] = useState(false);
   const [postingId, setPostingId] = useState<string | null>(null);
   const [faceValue, setFaceValue] = useState("5000");
   const [currency, setCurrency] = useState("USD");
@@ -97,6 +100,7 @@ export function SupplierPage() {
       });
       setSuccess(`Standing consent policy registered for ${maId}.`);
       setMaId(`MA-DEMO-${String(policies.length + 1).padStart(3, "0")}`);
+      setRegisterOpen(false);
       await refresh();
     } catch (err) {
       setError(String(err));
@@ -177,20 +181,13 @@ export function SupplierPage() {
                   </Field>
                 </div>
                 <Field>
-                  <label className="flex cursor-pointer items-start gap-2.5 text-sm">
-                    <Checkbox
-                      className="mt-0.5"
-                      checked={consentGranted}
-                      onChange={(e) => setConsentGranted(e.target.checked)}
-                    />
-                    <span>
-                      Grant assignment consent inline on this proposal
-                      <FieldDescription className="mt-1">
-                        One-time consent for this invoice only. For recurring trade, register a
-                        standing policy under Assignment Consent.
-                      </FieldDescription>
-                    </span>
-                  </label>
+                  <FieldLabel>Assignment consent</FieldLabel>
+                  <ChoiceCard
+                    selected={consentGranted}
+                    onSelectedChange={setConsentGranted}
+                    title="Grant assignment consent inline on this proposal"
+                    description="One-time consent for this invoice only. For recurring trade, register a standing policy under Assignment Consent."
+                  />
                 </Field>
                 <Button type="submit" disabled={proposing}>
                   <Send className="size-4" />
@@ -291,72 +288,81 @@ export function SupplierPage() {
             </Card>
           </div>
 
-          <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
-            <Surface title="Register Policy" emphasis>
-              <form onSubmit={handleConsent}>
-                <FieldGroup>
-                  <Field>
-                    <FieldLabel htmlFor="maId">Master Agreement ID</FieldLabel>
-                    <Input
-                      id="maId"
-                      value={maId}
-                      onChange={(e) => setMaId(e.target.value)}
-                      placeholder="e.g. MA-ACME-2026"
-                    />
-                    <FieldDescription>
-                      References your commercial framework with the buyer (MSA, supply agreement,
-                      etc.).
-                    </FieldDescription>
-                  </Field>
-                  <Field>
-                    <label className="flex cursor-pointer items-start gap-2.5 text-sm">
-                      <Checkbox
-                        className="mt-0.5"
-                        checked={allowsAssignment}
-                        onChange={(e) => setAllowsAssignment(e.target.checked)}
-                      />
-                      <span>
-                        Allow receivable assignment to financiers
-                        <FieldDescription className="mt-1">
-                          When enabled, financiers can bid on posted receivables covered by this
-                          agreement.
-                        </FieldDescription>
-                      </span>
-                    </label>
-                  </Field>
-                  <Button type="submit" disabled={creatingPolicy} className="w-full">
-                    <Plus className="size-4" />
-                    {creatingPolicy ? "Registering…" : "Register on Ledger"}
-                  </Button>
-                </FieldGroup>
-              </form>
-            </Surface>
+          <Surface
+            title="On-Ledger Policies"
+            className="w-full"
+            action={
+              <Button type="button" size="sm" onClick={() => setRegisterOpen(true)}>
+                <Plus className="size-4" />
+                Register new policy
+              </Button>
+            }
+          >
+            <RecordCardGrid
+              maxRows={2}
+              items={policies.map((policy, index) => {
+                const fields = objectToRecordFields(policy as Record<string, unknown>);
+                return {
+                  key: policy.contractId ?? `policy-${index}`,
+                  title: policy.masterAgreementId ?? `Policy ${index + 1}`,
+                  subtitle: policy.grantedAt
+                    ? `Granted ${new Date(policy.grantedAt).toLocaleString()}`
+                    : undefined,
+                  badge: policy.allowsAssignment ? "Assignment allowed" : "No assignment",
+                  fields,
+                };
+              })}
+              dialogTitle="Consent policy"
+              emptyMessage="No standing policies yet. Register one to streamline invoice assignment."
+            />
+          </Surface>
 
-            <Surface title="On-Ledger Policies">
-              {policies.length === 0 ? (
-                <EmptyState>
-                  No standing policies yet. Register one to streamline invoice assignment.
-                </EmptyState>
-              ) : (
-                <RecordCardGrid
-                  items={policies.map((policy, index) => {
-                    const fields = objectToRecordFields(policy as Record<string, unknown>);
-                    return {
-                      key: policy.contractId ?? `policy-${index}`,
-                      title: policy.masterAgreementId ?? `Policy ${index + 1}`,
-                      subtitle: policy.grantedAt
-                        ? `Granted ${new Date(policy.grantedAt).toLocaleString()}`
-                        : undefined,
-                      badge: policy.allowsAssignment ? "Assignment allowed" : "No assignment",
-                      fields,
-                    };
-                  })}
-                  dialogTitle="Consent policy"
-                  emptyMessage="No consent policies on record."
-                />
-              )}
-            </Surface>
-          </div>
+          <Dialog
+            open={registerOpen}
+            onOpenChange={setRegisterOpen}
+            title="Register consent policy"
+            description="Create a standing on-ledger AssignmentConsentPolicy under your master commercial agreement."
+          >
+            <form onSubmit={handleConsent}>
+              <FieldGroup>
+                <Field>
+                  <FieldLabel htmlFor="maId">Master Agreement ID</FieldLabel>
+                  <Input
+                    id="maId"
+                    value={maId}
+                    onChange={(e) => setMaId(e.target.value)}
+                    placeholder="e.g. MA-ACME-2026"
+                  />
+                  <FieldDescription>
+                    References your commercial framework with the buyer (MSA, supply agreement,
+                    etc.).
+                  </FieldDescription>
+                </Field>
+                <Field>
+                  <FieldLabel>Assignment authorization</FieldLabel>
+                  <ChoiceCard
+                    selected={allowsAssignment}
+                    onSelectedChange={setAllowsAssignment}
+                    title="Allow receivable assignment to financiers"
+                    description="When enabled, financiers can bid on posted receivables covered by this agreement."
+                  />
+                </Field>
+                <div className="flex justify-end gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => setRegisterOpen(false)}
+                  >
+                    Cancel
+                  </Button>
+                  <Button type="submit" disabled={creatingPolicy}>
+                    <Plus className="size-4" />
+                    {creatingPolicy ? "Registering…" : "Register on ledger"}
+                  </Button>
+                </div>
+              </FieldGroup>
+            </form>
+          </Dialog>
 
           <Card className="flex gap-3 border-primary/20 bg-primary/5">
             <Scale className="mt-0.5 size-4 shrink-0 text-primary" />

@@ -15,17 +15,11 @@ import { Alert, EmptyState, InlineCode, PageHeader } from "../components/ui/Aler
 import { Badge } from "../components/ui/Badge";
 import { Button } from "../components/ui/Button";
 import { Card, Surface } from "../components/ui/Surface";
-import { Checkbox, Field, FieldGroup, FieldLabel } from "../components/ui/Field";
+import { ChoiceCard } from "../components/ui/ChoiceCard";
+import { DataTable } from "../components/ui/DataTable";
+import { Field, FieldGroup, FieldLabel } from "../components/ui/Field";
 import { Input } from "../components/ui/Input";
 import { PageTabBar } from "../components/ui/PageTabBar";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "../components/ui/Table";
 import { truncateParty } from "../lib/utils";
 
 export function FinancierPage() {
@@ -248,34 +242,46 @@ export function FinancierPage() {
                 <Alert variant="destructive">Agent error: {agentStatus.lastError}</Alert>
               )}
               {agentStatus.decisions.length > 0 && (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Round</TableHead>
-                      <TableHead>Bid?</TableHead>
-                      <TableHead>Advance</TableHead>
-                      <TableHead>Rate</TableHead>
-                      <TableHead>Submitted</TableHead>
-                      <TableHead>Notes</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {agentStatus.decisions.map((d) => (
-                      <TableRow key={d.requestContractId}>
-                        <TableCell>{d.requestId}</TableCell>
-                        <TableCell>{d.shouldBid ? "yes" : "no"}</TableCell>
-                        <TableCell>{d.advanceAmount}</TableCell>
-                        <TableCell>{d.discountRate}</TableCell>
-                        <TableCell>
-                          {d.submitted ? d.bidContractId?.slice(0, 12) ?? "yes" : "no"}
-                        </TableCell>
-                        <TableCell className="max-w-[200px] truncate">
+                <DataTable
+                  data={agentStatus.decisions}
+                  rowKey={(d) => d.requestContractId}
+                  emptyMessage="No agent decisions yet."
+                  detailTitle={(d) => d.requestId}
+                  detailFields={(d) => [
+                    { label: "Should bid", value: d.shouldBid ? "Yes" : "No" },
+                    { label: "Advance", value: d.advanceAmount },
+                    { label: "Discount rate", value: d.discountRate },
+                    {
+                      label: "Submitted",
+                      value: d.submitted ? d.bidContractId ?? "Yes" : "No",
+                      mono: Boolean(d.bidContractId),
+                    },
+                    { label: "Rationale", value: d.rationale ?? "—" },
+                    { label: "Ledger error", value: d.ledgerError ?? "—" },
+                    { label: "Request contract", value: d.requestContractId, mono: true },
+                  ]}
+                  columns={[
+                    { id: "round", header: "Round", cell: (d) => d.requestId },
+                    { id: "bid", header: "Bid?", cell: (d) => (d.shouldBid ? "yes" : "no") },
+                    { id: "advance", header: "Advance", cell: (d) => d.advanceAmount },
+                    { id: "rate", header: "Rate", cell: (d) => d.discountRate },
+                    {
+                      id: "submitted",
+                      header: "Submitted",
+                      cell: (d) =>
+                        d.submitted ? d.bidContractId?.slice(0, 12) ?? "yes" : "no",
+                    },
+                    {
+                      id: "notes",
+                      header: "Notes",
+                      cell: (d) => (
+                        <span className="block max-w-[200px] truncate">
                           {d.ledgerError ?? d.rationale}
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
+                        </span>
+                      ),
+                    },
+                  ]}
+                />
               )}
             </div>
           )}
@@ -333,15 +339,17 @@ export function FinancierPage() {
                   />
                 </Field>
               </div>
-              <label className="flex cursor-pointer items-center gap-2.5 text-sm">
-                <Checkbox
-                  checked={mandateForm.agentEnabled}
-                  onChange={(e) =>
-                    setMandateForm((f) => ({ ...f, agentEnabled: e.target.checked }))
+              <Field>
+                <FieldLabel>Agent automation</FieldLabel>
+                <ChoiceCard
+                  selected={mandateForm.agentEnabled}
+                  onSelectedChange={(value) =>
+                    setMandateForm((f) => ({ ...f, agentEnabled: value }))
                   }
+                  title="Enable agent"
+                  description="Allow the Groq-powered bidding agent to submit mandate-constrained bids on your behalf."
                 />
-                Enable agent
-              </label>
+              </Field>
               <Button type="submit">
                 <Plus className="size-4" />
                 Create mandate on-ledger
@@ -351,47 +359,55 @@ export function FinancierPage() {
         </Surface>
 
         {mandates.length > 0 && (
-          <Card className="p-0 overflow-hidden">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>ID</TableHead>
-                  <TableHead>Max exposure</TableHead>
-                  <TableHead>Min spread</TableHead>
-                  <TableHead>Agent</TableHead>
-                  <TableHead>Revoked</TableHead>
-                  <TableHead />
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {mandates.map((m) => (
-                  <TableRow key={m.contractId}>
-                    <TableCell className="font-medium">{m.mandateId}</TableCell>
-                    <TableCell>{m.maxExposure}</TableCell>
-                    <TableCell>{m.minSpread}</TableCell>
-                    <TableCell>
-                      <Badge variant={m.agentEnabled ? "success" : "muted"}>
-                        {m.agentEnabled ? "on" : "off"}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>{m.revoked ? "yes" : "no"}</TableCell>
-                    <TableCell>
-                      {!m.revoked && (
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          onClick={() => toggleAgentEnabled(m)}
-                        >
-                          {m.agentEnabled ? "Disable agent" : "Enable agent"}
-                        </Button>
-                      )}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </Card>
+          <DataTable
+            data={mandates}
+            rowKey={(m) => m.contractId}
+            emptyMessage="No mandates on record."
+            detailTitle={(m) => m.mandateId}
+            detailFields={(m) => [
+              { label: "Max exposure", value: m.maxExposure },
+              { label: "Min spread", value: m.minSpread },
+              { label: "Agent enabled", value: m.agentEnabled ? "Yes" : "No" },
+              { label: "Revoked", value: m.revoked ? "Yes" : "No" },
+              { label: "Contract ID", value: m.contractId, mono: true },
+            ]}
+            columns={[
+              {
+                id: "id",
+                header: "ID",
+                cell: (m) => <span className="font-medium">{m.mandateId}</span>,
+              },
+              { id: "exposure", header: "Max exposure", cell: (m) => m.maxExposure },
+              { id: "spread", header: "Min spread", cell: (m) => m.minSpread },
+              {
+                id: "agent",
+                header: "Agent",
+                cell: (m) => (
+                  <Badge variant={m.agentEnabled ? "success" : "muted"}>
+                    {m.agentEnabled ? "on" : "off"}
+                  </Badge>
+                ),
+              },
+              { id: "revoked", header: "Revoked", cell: (m) => (m.revoked ? "yes" : "no") },
+              {
+                id: "action",
+                header: "",
+                isAction: true,
+                align: "right",
+                cell: (m) =>
+                  !m.revoked ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => toggleAgentEnabled(m)}
+                    >
+                      {m.agentEnabled ? "Disable agent" : "Enable agent"}
+                    </Button>
+                  ) : null,
+              },
+            ]}
+          />
         )}
       </div>
       </>
@@ -491,36 +507,42 @@ export function FinancierPage() {
         {myBids.length === 0 ? (
           <EmptyState>No active bids.</EmptyState>
         ) : (
-          <Card className="p-0 overflow-hidden">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Round</TableHead>
-                  <TableHead>Advance</TableHead>
-                  <TableHead>Discount</TableHead>
-                  <TableHead>Mode</TableHead>
-                  <TableHead>Agent</TableHead>
-                  <TableHead>Report</TableHead>
-                  <TableHead>Submitted</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {myBids.map((bid) => (
-                  <TableRow key={bid.contractId}>
-                    <TableCell>{bid.requestId}</TableCell>
-                    <TableCell>{bid.advanceAmount}</TableCell>
-                    <TableCell>{bid.discountRate}</TableCell>
-                    <TableCell>
-                      <Badge variant="outline">{bid.mode}</Badge>
-                    </TableCell>
-                    <TableCell>{bid.viaAgent ? bid.mandateId ?? "yes" : "manual"}</TableCell>
-                    <TableCell>{bid.reportId.slice(0, 16)}…</TableCell>
-                    <TableCell>{bid.ledgerTime}</TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </Card>
+          <DataTable
+            data={myBids}
+            rowKey={(bid) => bid.contractId}
+            emptyMessage="No active bids."
+            detailTitle={(bid) => bid.requestId}
+            detailFields={(bid) => [
+              { label: "Advance", value: bid.advanceAmount },
+              { label: "Discount", value: bid.discountRate },
+              { label: "Mode", value: bid.mode },
+              { label: "Agent", value: bid.viaAgent ? bid.mandateId ?? "yes" : "manual" },
+              { label: "Report ID", value: bid.reportId, mono: true },
+              { label: "Submitted", value: bid.ledgerTime },
+              { label: "Contract ID", value: bid.contractId, mono: true },
+            ]}
+            columns={[
+              { id: "round", header: "Round", cell: (bid) => bid.requestId },
+              { id: "advance", header: "Advance", cell: (bid) => bid.advanceAmount },
+              { id: "discount", header: "Discount", cell: (bid) => bid.discountRate },
+              {
+                id: "mode",
+                header: "Mode",
+                cell: (bid) => <Badge variant="outline">{bid.mode}</Badge>,
+              },
+              {
+                id: "agent",
+                header: "Agent",
+                cell: (bid) => (bid.viaAgent ? bid.mandateId ?? "yes" : "manual"),
+              },
+              {
+                id: "report",
+                header: "Report",
+                cell: (bid) => `${bid.reportId.slice(0, 16)}…`,
+              },
+              { id: "submitted", header: "Submitted", cell: (bid) => bid.ledgerTime },
+            ]}
+          />
         )}
       </div>
       </>
@@ -534,28 +556,29 @@ export function FinancierPage() {
         {positions.length === 0 ? (
           <EmptyState>No funded positions yet.</EmptyState>
         ) : (
-          <Card className="p-0 overflow-hidden">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Receivable</TableHead>
-                  <TableHead>Face value</TableHead>
-                  <TableHead>Status</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {positions.map((p) => (
-                  <TableRow key={p.receivableId}>
-                    <TableCell className="font-medium">{p.receivableId}</TableCell>
-                    <TableCell>{p.faceValue}</TableCell>
-                    <TableCell>
-                      <Badge variant="secondary">{p.state}</Badge>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </Card>
+          <DataTable
+            data={positions}
+            rowKey={(p) => p.receivableId}
+            emptyMessage="No funded positions yet."
+            detailTitle={(p) => p.receivableId}
+            detailFields={(p) => [
+              { label: "Face value", value: p.faceValue },
+              { label: "Status", value: p.state },
+            ]}
+            columns={[
+              {
+                id: "receivable",
+                header: "Receivable",
+                cell: (p) => <span className="font-medium">{p.receivableId}</span>,
+              },
+              { id: "face", header: "Face value", cell: (p) => p.faceValue },
+              {
+                id: "status",
+                header: "Status",
+                cell: (p) => <Badge variant="secondary">{p.state}</Badge>,
+              },
+            ]}
+          />
         )}
       </div>
       )}

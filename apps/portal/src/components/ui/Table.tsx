@@ -2,13 +2,11 @@ import { cn } from "../../lib/utils";
 
 export function Table({ className, ...props }: React.HTMLAttributes<HTMLTableElement>) {
   return (
-    <div data-slot="table-container" className="relative w-full overflow-x-auto">
-      <table
-        data-slot="table"
-        className={cn("w-full caption-bottom text-sm", className)}
-        {...props}
-      />
-    </div>
+    <table
+      data-slot="table"
+      className={cn("w-full caption-bottom border-collapse text-left text-sm", className)}
+      {...props}
+    />
   );
 }
 
@@ -31,7 +29,7 @@ export function TableRow({ className, ...props }: React.HTMLAttributes<HTMLTable
     <tr
       data-slot="table-row"
       className={cn(
-        "border-b border-border transition-colors hover:bg-muted/30 data-[state=selected]:bg-muted",
+        "border-b border-border/60 transition-[background-color,transform] duration-200 hover:bg-muted/25 data-[state=selected]:bg-muted",
         className
       )}
       {...props}
@@ -44,7 +42,7 @@ export function TableHead({ className, ...props }: React.ThHTMLAttributes<HTMLTa
     <th
       data-slot="table-head"
       className={cn(
-        "h-9 px-3 text-left align-middle text-xs font-medium tracking-wide text-muted-foreground uppercase",
+        "h-9 px-4 text-left align-middle text-[11px] font-semibold tracking-wider text-muted-foreground uppercase",
         className
       )}
       {...props}
@@ -56,7 +54,7 @@ export function TableCell({ className, ...props }: React.TdHTMLAttributes<HTMLTa
   return (
     <td
       data-slot="table-cell"
-      className={cn("px-3 py-2.5 align-middle text-foreground", className)}
+      className={cn("h-11 px-4 align-middle text-[13px] text-foreground tabular-nums", className)}
       {...props}
     />
   );
