@@ -54,3 +54,4 @@ infra/localnet/
 daml/vendor/redstone/redstone-oracles-monorepo/
 
 # Logs
+ref-ui/
