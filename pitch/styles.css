@@ -1,0 +1,1609 @@
+/* ==========================================================================
+   Meridian — Pitch Deck
+   Design system mirrors apps/portal/src/index.css (dark, Canton-green, Space
+   Grotesk headings / Instrument Sans body).
+   ========================================================================== */
+
+@import url("https://fonts.googleapis.com/css2?family=Instrument+Sans:ital,wght@0,400..700;1,400..700&family=Space+Grotesk:wght@500..700&display=swap");
+
+:root {
+  --background: oklch(0.08 0.015 155);
+  --background-soft: oklch(0.105 0.018 155);
+  --foreground: oklch(0.96 0.01 155);
+  --card: oklch(0.16 0.02 155 / 0.55);
+  --card-solid: oklch(0.15 0.02 155);
+  --popover: oklch(0.14 0.02 155);
+  --primary: oklch(0.58 0.14 155);
+  --primary-foreground: oklch(0.12 0.03 155);
+  --secondary: oklch(0.22 0.025 155);
+  --secondary-foreground: oklch(0.96 0.01 155);
+  --muted: oklch(0.22 0.02 155);
+  --muted-foreground: oklch(0.68 0.03 155);
+  --accent: oklch(0.58 0.14 155);
+  --destructive: oklch(0.65 0.2 25);
+  --amber: oklch(0.78 0.14 85);
+  --success: oklch(0.62 0.14 155);
+  --border: oklch(1 0 0 / 10%);
+  --border-strong: oklch(1 0 0 / 16%);
+
+  --radius-sm: 0.5rem;
+  --radius-md: 0.85rem;
+  --radius-lg: 1.1rem;
+  --radius-xl: 1.4rem;
+  --radius-2xl: 1.75rem;
+
+  --font-sans: "Instrument Sans", -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-heading: "Space Grotesk", -apple-system, BlinkMacSystemFont, sans-serif;
+
+  --page-gutter: clamp(1.5rem, 6vw, 6.5rem);
+  --ease: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+  font-size: 16px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+}
+
+h1,
+h2,
+h3,
+h4 {
+  font-family: var(--font-heading);
+  margin: 0;
+  letter-spacing: -0.01em;
+}
+
+p {
+  margin: 0;
+}
+
+::selection {
+  background: color-mix(in oklch, var(--primary) 35%, transparent);
+  color: var(--foreground);
+}
+
+/* Ambient background: soft radial glows fixed behind every slide */
+.bg-glow {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(60rem 40rem at 12% -8%, color-mix(in oklch, var(--primary) 16%, transparent), transparent 60%),
+    radial-gradient(50rem 36rem at 108% 12%, color-mix(in oklch, var(--primary) 10%, transparent), transparent 55%),
+    radial-gradient(70rem 50rem at 50% 118%, color-mix(in oklch, var(--primary) 8%, transparent), transparent 60%),
+    var(--background);
+}
+
+.bg-grid {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0.5;
+  background-image:
+    linear-gradient(to right, color-mix(in oklch, white 4%, transparent) 1px, transparent 1px),
+    linear-gradient(to bottom, color-mix(in oklch, white 4%, transparent) 1px, transparent 1px);
+  background-size: 64px 64px;
+  mask-image: radial-gradient(80% 70% at 50% 40%, black, transparent 90%);
+}
+
+/* ==========================================================================
+   Deck shell / navigation
+   ========================================================================== */
+
+.deck {
+  position: relative;
+  z-index: 1;
+  height: 100svh;
+  width: 100vw;
+  overflow-y: scroll;
+  overflow-x: hidden;
+  scroll-snap-type: y mandatory;
+  /* Deliberately not scroll-behavior: smooth here — the browser's native
+     fragment-jump-on-load would then animate and could race with layout
+     shifts from async web-font loading. JS navigation (script.js) opts into
+     smooth scrolling explicitly per-call via scrollIntoView({behavior}). */
+}
+
+.slide {
+  position: relative;
+  /* Fixed (not min-) height + internal scroll: a slide can never bleed into
+     its neighbor, and on a short viewport its content is always reachable
+     by scrolling within the slide rather than being clipped and lost. */
+  height: 100svh;
+  width: 100%;
+  scroll-snap-align: start;
+  scroll-snap-stop: always;
+  display: flex;
+  flex-direction: column;
+  /* flex-start (not center) is deliberate: a flex container that centers
+     content which is *taller* than itself clips symmetrically off both the
+     top and bottom edges, with no scroll affordance to recover the top.
+     Centering instead comes from the auto margins on .slide-inner below,
+     which degrade gracefully to top-aligned + scrollable once content
+     overflows. */
+  justify-content: flex-start;
+  overflow-y: auto;
+  overflow-x: hidden;
+  /* Top floor (4rem) keeps slide content clear of the fixed brand-mark even
+     in the worst case (tallest content + shortest viewport, no centering
+     slack left to distribute). */
+  padding: clamp(4rem, 6.5vh, 4.75rem) var(--page-gutter) clamp(2.25rem, 4.5vh, 3.25rem);
+  border-bottom: 1px solid color-mix(in oklch, white 3%, transparent);
+}
+
+.slide-inner {
+  width: 100%;
+  max-width: 76rem;
+  margin: auto auto;
+}
+
+.eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-family: var(--font-heading);
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--primary);
+  margin-bottom: 1.25rem;
+}
+
+.eyebrow::before {
+  content: "";
+  display: block;
+  width: 0.4rem;
+  height: 0.4rem;
+  border-radius: 999px;
+  background: var(--primary);
+  box-shadow: 0 0 0 4px color-mix(in oklch, var(--primary) 18%, transparent);
+}
+
+.slide-index-tag {
+  font-family: var(--font-heading);
+  color: var(--muted-foreground);
+  font-weight: 600;
+}
+
+.slide-title {
+  font-size: clamp(1.9rem, 3.6vw, 3.1rem);
+  font-weight: 600;
+  line-height: 1.12;
+  color: var(--foreground);
+  max-width: 46rem;
+}
+
+.slide-title .accent {
+  color: var(--primary);
+}
+
+.slide-sub {
+  margin-top: 1.15rem;
+  max-width: 40rem;
+  font-size: clamp(1rem, 1.15vw, 1.15rem);
+  line-height: 1.65;
+  color: var(--muted-foreground);
+}
+
+.slide-kicker {
+  margin-top: 1.85rem;
+}
+
+/* Top progress bar */
+.progress-rail {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  z-index: 30;
+  background: color-mix(in oklch, white 6%, transparent);
+}
+
+.progress-fill {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, var(--primary), color-mix(in oklch, var(--primary) 40%, white));
+  transition: width 0.5s var(--ease);
+}
+
+/* Brand mark, fixed top-left */
+.brand-mark {
+  position: fixed;
+  top: 1.5rem;
+  left: var(--page-gutter);
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  font-family: var(--font-heading);
+  font-weight: 600;
+  font-size: 0.9rem;
+  color: var(--foreground);
+  opacity: 0.9;
+}
+
+.brand-mark img {
+  height: 1.5rem;
+  width: auto;
+  display: block;
+}
+
+.brand-mark span.dim {
+  color: var(--muted-foreground);
+  font-weight: 500;
+}
+
+/* Dot navigation, fixed right side */
+.dot-nav {
+  position: fixed;
+  right: clamp(1rem, 2.5vw, 2.25rem);
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.dot-nav button {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 999px;
+  border: none;
+  padding: 0;
+  background: color-mix(in oklch, white 18%, transparent);
+  cursor: pointer;
+  transition: all 0.3s var(--ease);
+  position: relative;
+}
+
+.dot-nav button:hover {
+  background: color-mix(in oklch, var(--primary) 60%, white 18%);
+}
+
+.dot-nav button.active {
+  background: var(--primary);
+  height: 1.5rem;
+  box-shadow: 0 0 0 3px color-mix(in oklch, var(--primary) 20%, transparent);
+}
+
+/* Bottom-left counter + hint */
+.deck-footer {
+  position: fixed;
+  left: var(--page-gutter);
+  bottom: 1.5rem;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  font-family: var(--font-heading);
+  font-size: 0.75rem;
+  color: var(--muted-foreground);
+}
+
+.deck-footer .count-current {
+  color: var(--foreground);
+  font-weight: 600;
+}
+
+.deck-footer .sep {
+  width: 2rem;
+  height: 1px;
+  background: color-mix(in oklch, white 20%, transparent);
+}
+
+/* Bottom-right prev/next controls */
+.deck-controls {
+  position: fixed;
+  right: clamp(1rem, 2.5vw, 2.25rem);
+  bottom: 1.5rem;
+  z-index: 30;
+  display: flex;
+  gap: 0.5rem;
+}
+
+.nav-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 999px;
+  border: 1px solid var(--border-strong);
+  background: color-mix(in oklch, var(--card-solid) 80%, transparent);
+  color: var(--foreground);
+  cursor: pointer;
+  backdrop-filter: blur(12px);
+  transition: all 0.2s var(--ease);
+}
+
+.nav-btn:hover {
+  border-color: color-mix(in oklch, var(--primary) 45%, transparent);
+  background: color-mix(in oklch, var(--primary) 12%, var(--card-solid));
+  color: var(--primary);
+}
+
+.nav-btn svg {
+  width: 1.1rem;
+  height: 1.1rem;
+}
+
+.nav-btn:disabled {
+  opacity: 0.3;
+  pointer-events: none;
+}
+
+/* ==========================================================================
+   Shared components
+   ========================================================================== */
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.4rem 0.85rem;
+  border-radius: 999px;
+  border: 1px solid var(--border-strong);
+  background: color-mix(in oklch, var(--muted) 45%, transparent);
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--muted-foreground);
+  letter-spacing: 0.02em;
+}
+
+.pill.pill--primary {
+  border-color: color-mix(in oklch, var(--primary) 40%, transparent);
+  background: color-mix(in oklch, var(--primary) 14%, transparent);
+  color: var(--primary);
+}
+
+.pill-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
+
+.card {
+  border-radius: var(--radius-2xl);
+  border: 1px solid var(--border);
+  background: color-mix(in oklch, var(--card-solid) 78%, transparent);
+  backdrop-filter: blur(20px);
+  box-shadow: 0 1px 0 0 color-mix(in oklch, white 4%, transparent) inset, 0 20px 40px -28px rgb(0 0 0 / 0.7);
+  padding: 1.5rem;
+}
+
+.icon-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.75rem;
+  height: 2.75rem;
+  border-radius: var(--radius-lg);
+  background: color-mix(in oklch, var(--primary) 15%, transparent);
+  color: var(--primary);
+  flex-shrink: 0;
+}
+
+.icon-badge svg {
+  width: 1.35rem;
+  height: 1.35rem;
+}
+
+.icon-badge.muted {
+  background: color-mix(in oklch, var(--muted) 70%, transparent);
+  color: var(--muted-foreground);
+}
+
+.icon-badge.destructive {
+  background: color-mix(in oklch, var(--destructive) 16%, transparent);
+  color: var(--destructive);
+}
+
+.divider {
+  height: 1px;
+  background: color-mix(in oklch, white 8%, transparent);
+  border: none;
+  margin: 0;
+}
+
+/* generic responsive grid helpers */
+.grid {
+  display: grid;
+  gap: 1.1rem;
+}
+
+.grid-2 {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.grid-3 {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.grid-4 {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+@media (max-width: 900px) {
+  .grid-2,
+  .grid-3,
+  .grid-4 {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ==========================================================================
+   Slide 1 — Cover
+   ========================================================================== */
+
+.slide--cover {
+  justify-content: center;
+  align-items: center;
+  text-align: center;
+}
+
+.cover-logo {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 2.25rem;
+}
+
+.cover-logo img {
+  height: 3.6rem;
+  width: auto;
+}
+
+.cover-title {
+  font-size: clamp(3.2rem, 9vw, 6.5rem);
+  font-weight: 650;
+  letter-spacing: -0.03em;
+  line-height: 1;
+  color: var(--foreground);
+}
+
+.cover-title .accent {
+  color: var(--primary);
+}
+
+.cover-subtitle {
+  margin: 1.75rem auto 0;
+  max-width: 40rem;
+  font-size: clamp(1.05rem, 1.6vw, 1.3rem);
+  color: var(--muted-foreground);
+  line-height: 1.6;
+}
+
+.cover-tracks {
+  margin-top: 2.5rem;
+  justify-content: center;
+}
+
+.cover-meta {
+  margin-top: 3.5rem;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  justify-content: center;
+  font-size: 0.8rem;
+  color: var(--muted-foreground);
+}
+
+.canton-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.canton-badge img {
+  height: 0.85rem;
+  width: auto;
+  filter: brightness(0.9);
+}
+
+.scroll-cue {
+  position: absolute;
+  bottom: 2.25rem;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--muted-foreground);
+  font-size: 0.7rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  animation: floaty 2.4s ease-in-out infinite;
+}
+
+@keyframes floaty {
+  0%,
+  100% {
+    transform: translate(-50%, 0);
+  }
+  50% {
+    transform: translate(-50%, 6px);
+  }
+}
+
+/* ==========================================================================
+   Slide 2 — Problem (stats + condensed structural tensions)
+   ========================================================================== */
+
+.stat-grid {
+  margin-top: 1.85rem;
+}
+
+.stat-card {
+  padding: 1.35rem 1.35rem;
+}
+
+.stat-card .stat-value {
+  font-family: var(--font-heading);
+  font-size: clamp(1.3rem, 2vw, 1.7rem);
+  font-weight: 650;
+  color: var(--primary);
+  line-height: 1.15;
+}
+
+.stat-card .stat-label {
+  margin-top: 0.55rem;
+  font-size: 0.83rem;
+  color: var(--muted-foreground);
+  line-height: 1.5;
+}
+
+.tension-chips {
+  margin-top: 1.5rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
+
+.tension-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.55rem 0.95rem;
+  border-radius: 999px;
+  border: 1px solid var(--border-strong);
+  background: color-mix(in oklch, var(--muted) 40%, transparent);
+  font-size: 0.8rem;
+  font-weight: 550;
+  color: var(--foreground);
+}
+
+.tension-chip__num {
+  font-family: var(--font-heading);
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--primary);
+}
+
+.callout {
+  margin-top: 1.75rem;
+  padding: 1.1rem 1.35rem;
+  border-radius: var(--radius-xl);
+  border: 1px solid color-mix(in oklch, var(--primary) 25%, var(--border));
+  background: color-mix(in oklch, var(--primary) 7%, transparent);
+  font-size: 0.9rem;
+  color: var(--foreground);
+  line-height: 1.6;
+}
+
+.callout strong {
+  color: var(--primary);
+}
+
+/* ==========================================================================
+   Slide 3 — Timeline (why now)
+   ========================================================================== */
+
+/* Horizontal timeline strip — five columns sharing one connecting line,
+   deliberately compact so the whole story fits one screen without an
+   inner scroll on typical viewports. */
+.timeline {
+  margin-top: 2rem;
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 1.1rem;
+}
+
+.timeline::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0.32rem;
+  height: 1px;
+  background: linear-gradient(
+    to right,
+    color-mix(in oklch, var(--primary) 60%, transparent),
+    color-mix(in oklch, white 10%, transparent) 85%
+  );
+}
+
+.timeline-item {
+  position: relative;
+  padding-top: 1.5rem;
+}
+
+.timeline-item::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 0.65rem;
+  height: 0.65rem;
+  border-radius: 999px;
+  background: var(--primary);
+  box-shadow: 0 0 0 4px color-mix(in oklch, var(--primary) 18%, transparent);
+}
+
+.timeline-item .t-date {
+  font-family: var(--font-heading);
+  font-size: 0.7rem;
+  font-weight: 650;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--primary);
+}
+
+.timeline-item h4 {
+  margin-top: 0.4rem;
+  font-size: 0.88rem;
+  font-weight: 650;
+  line-height: 1.3;
+  color: var(--foreground);
+}
+
+.timeline-item p {
+  margin-top: 0.4rem;
+  font-size: 0.76rem;
+  color: var(--muted-foreground);
+  line-height: 1.5;
+}
+
+@media (max-width: 900px) {
+  .timeline {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    row-gap: 1.75rem;
+  }
+
+  .timeline::before {
+    display: none;
+  }
+
+  .timeline-item {
+    padding-top: 0;
+    padding-left: 1.4rem;
+  }
+
+  .timeline-item::before {
+    left: 0;
+    top: 0.28rem;
+  }
+}
+
+/* ==========================================================================
+   Slide 4 — Why Canton pillars
+   ========================================================================== */
+
+.pillar-card h4 {
+  margin-top: 1.1rem;
+  font-size: 1rem;
+  font-weight: 650;
+  color: var(--foreground);
+}
+
+.pillar-card p {
+  margin-top: 0.5rem;
+  font-size: 0.86rem;
+  color: var(--muted-foreground);
+  line-height: 1.6;
+}
+
+.quote-block {
+  margin-top: 2.25rem;
+  padding: 1.5rem 1.75rem;
+  border-left: 3px solid var(--primary);
+  background: color-mix(in oklch, var(--muted) 30%, transparent);
+  border-radius: 0 var(--radius-lg) var(--radius-lg) 0;
+  font-family: var(--font-heading);
+  font-size: 1.05rem;
+  line-height: 1.55;
+  color: var(--foreground);
+}
+
+/* ==========================================================================
+   Slide 5 — Sealed-bid mechanism visual
+   ========================================================================== */
+
+.mechanism-layout {
+  margin-top: 1.25rem;
+  display: grid;
+  grid-template-columns: 1.05fr 1fr;
+  gap: 2.5rem;
+  align-items: start;
+}
+
+@media (max-width: 980px) {
+  .mechanism-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+.mech-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+/* The dot and its heading share a flex row (aligned by their shared cross-
+   axis center), so the number badge always lines up with the title's text
+   rather than the top of the whole title+paragraph block. The paragraph
+   sits on its own line below, indented to match the heading's left edge. */
+.mech-step {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.mech-step__head {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+}
+
+.mech-step .mech-dot {
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: 999px;
+  background: color-mix(in oklch, var(--primary) 16%, transparent);
+  color: var(--primary);
+  font-family: var(--font-heading);
+  font-size: 0.75rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.mech-step h5 {
+  font-size: 0.9rem;
+  font-weight: 650;
+  color: var(--foreground);
+}
+
+.mech-step p {
+  margin-left: calc(1.75rem + 0.85rem);
+  font-size: 0.8rem;
+  color: var(--muted-foreground);
+  line-height: 1.45;
+}
+
+.bid-room {
+  padding: 1.5rem;
+}
+
+.bid-room__label {
+  font-family: var(--font-heading);
+  font-size: 0.78rem;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted-foreground);
+}
+
+.bid-room__title {
+  margin-top: 0.35rem;
+  font-size: 1.05rem;
+  font-weight: 650;
+  color: var(--foreground);
+}
+
+.bid-room__observers {
+  margin-top: 0.5rem;
+  font-size: 0.78rem;
+  color: var(--muted-foreground);
+}
+
+.bid-room__observers strong {
+  color: var(--foreground);
+}
+
+.bid-boxes {
+  margin-top: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.bid-box {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.85rem 1rem;
+  border-radius: var(--radius-lg);
+  border: 1px solid color-mix(in oklch, var(--primary) 22%, var(--border));
+  background: color-mix(in oklch, var(--primary) 6%, transparent);
+}
+
+.bid-box__who {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--foreground);
+}
+
+.bid-box__who .dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 999px;
+  background: var(--primary);
+}
+
+.bid-box__visibility {
+  font-size: 0.68rem;
+  color: var(--muted-foreground);
+  text-align: right;
+  line-height: 1.35;
+}
+
+.bid-box__visibility .lock {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  color: var(--muted-foreground);
+}
+
+.bid-box__visibility svg {
+  width: 0.75rem;
+  height: 0.75rem;
+}
+
+/* ==========================================================================
+   Slide 6 — Interface views + matrix
+   ========================================================================== */
+
+.view-cards {
+  margin-top: 1.85rem;
+}
+
+.view-card h4 {
+  margin-top: 1rem;
+  font-size: 0.92rem;
+  font-weight: 650;
+  color: var(--foreground);
+}
+
+.view-card p {
+  margin-top: 0.4rem;
+  font-size: 0.8rem;
+  color: var(--muted-foreground);
+  line-height: 1.55;
+}
+
+.matrix-wrap {
+  margin-top: 2rem;
+  border-radius: var(--radius-2xl);
+  border: 1px solid var(--border);
+  overflow: hidden;
+  background: color-mix(in oklch, var(--card-solid) 78%, transparent);
+  backdrop-filter: blur(20px);
+}
+
+.matrix {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.78rem;
+}
+
+.matrix th,
+.matrix td {
+  padding: 0.7rem 1rem;
+  text-align: left;
+  border-bottom: 1px solid color-mix(in oklch, white 6%, transparent);
+}
+
+.matrix thead th {
+  font-family: var(--font-heading);
+  font-size: 0.68rem;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted-foreground);
+  background: color-mix(in oklch, var(--muted) 35%, transparent);
+}
+
+.matrix tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.matrix td:first-child {
+  color: var(--foreground);
+  font-weight: 600;
+}
+
+.cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-weight: 600;
+}
+
+.cell svg {
+  width: 0.85rem;
+  height: 0.85rem;
+  flex-shrink: 0;
+}
+
+.cell--yes {
+  color: var(--success);
+}
+
+.cell--no {
+  color: var(--destructive);
+}
+
+.cell--partial {
+  color: var(--amber);
+}
+
+/* ==========================================================================
+   Slide 7 — Atomic settlement + syndication
+   ========================================================================== */
+
+.atomic-wrap {
+  margin-top: 1.4rem;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2.2rem;
+  align-items: center;
+}
+
+@media (max-width: 980px) {
+  .atomic-wrap {
+    grid-template-columns: 1fr;
+  }
+}
+
+.atomic-box {
+  position: relative;
+  padding: 1.4rem;
+  border-radius: var(--radius-2xl);
+  border: 1px solid color-mix(in oklch, var(--primary) 30%, var(--border));
+  background: color-mix(in oklch, var(--primary) 6%, var(--card-solid));
+}
+
+.atomic-box__label {
+  font-family: var(--font-heading);
+  font-size: 0.72rem;
+  font-weight: 650;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--primary);
+}
+
+.atomic-actions {
+  margin-top: 0.9rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.atomic-action {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.6rem 0.85rem;
+  border-radius: var(--radius-lg);
+  background: color-mix(in oklch, var(--card-solid) 90%, transparent);
+  border: 1px solid var(--border);
+  font-size: 0.83rem;
+  color: var(--foreground);
+  font-weight: 550;
+}
+
+.atomic-action .icon-badge {
+  width: 2rem;
+  height: 2rem;
+  border-radius: var(--radius-md);
+}
+
+.atomic-action .icon-badge svg {
+  width: 1.05rem;
+  height: 1.05rem;
+}
+
+.atomic-brace {
+  margin-top: 0.7rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.72rem;
+  color: var(--muted-foreground);
+  text-align: center;
+  justify-content: center;
+  padding-top: 0.6rem;
+  border-top: 1px dashed color-mix(in oklch, var(--primary) 30%, transparent);
+}
+
+.atomic-copy h4 {
+  font-size: 1.05rem;
+  font-weight: 650;
+  color: var(--foreground);
+}
+
+.atomic-copy p {
+  margin-top: 0.6rem;
+  font-size: 0.9rem;
+  color: var(--muted-foreground);
+  line-height: 1.65;
+}
+
+.atomic-copy p + p {
+  margin-top: 0.85rem;
+}
+
+.atomic-copy .highlight {
+  color: var(--primary);
+  font-weight: 600;
+}
+
+/* ==========================================================================
+   Slide 7 (cont'd) — Syndication
+   ========================================================================== */
+
+.cap-table-mock {
+  margin-top: 1.1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.cap-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.6rem 0.85rem;
+  border-radius: var(--radius-md);
+  background: color-mix(in oklch, var(--muted) 40%, transparent);
+  font-size: 0.78rem;
+}
+
+.cap-row.self {
+  border: 1px solid color-mix(in oklch, var(--primary) 30%, transparent);
+  background: color-mix(in oklch, var(--primary) 8%, transparent);
+}
+
+.cap-row .who {
+  font-weight: 600;
+  color: var(--foreground);
+}
+
+.cap-row .amt {
+  color: var(--muted-foreground);
+  font-variant-numeric: tabular-nums;
+}
+
+.cap-row .blur {
+  filter: blur(4px);
+  color: var(--muted-foreground);
+  user-select: none;
+}
+
+/* ==========================================================================
+   Cross-synchronizer settlement chips
+   Folded into the "Why Canton" pillar card (network of networks) rather
+   than a standalone slide.
+   ========================================================================== */
+
+.topo-chip-row {
+  margin-top: 0.85rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.topo-chip {
+  font-size: 0.68rem;
+  font-weight: 650;
+  padding: 0.3rem 0.65rem;
+  border-radius: 999px;
+  border: 1px solid var(--border-strong);
+  color: var(--muted-foreground);
+}
+
+.topo-chip.atomic {
+  border-color: color-mix(in oklch, var(--success) 40%, transparent);
+  color: var(--success);
+  background: color-mix(in oklch, var(--success) 12%, transparent);
+}
+
+.topo-chip.reassign {
+  border-color: color-mix(in oklch, var(--amber) 40%, transparent);
+  color: var(--amber);
+  background: color-mix(in oklch, var(--amber) 12%, transparent);
+}
+
+.topo-chip.escrow {
+  border-color: color-mix(in oklch, var(--destructive) 35%, transparent);
+  color: var(--destructive);
+  background: color-mix(in oklch, var(--destructive) 10%, transparent);
+}
+
+/* ==========================================================================
+   Portal strip — condensed 4-persona footer folded into the atomic
+   settlement + syndication slide, in place of a standalone product slide.
+   ========================================================================== */
+
+.portal-strip {
+  margin-top: 1.2rem;
+  padding-top: 1rem;
+  border-top: 1px solid color-mix(in oklch, white 8%, transparent);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 1rem 1.5rem;
+}
+
+.portal-strip__label {
+  font-family: var(--font-heading);
+  font-size: 0.78rem;
+  font-weight: 650;
+  color: var(--muted-foreground);
+}
+
+.portal-strip__items {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
+
+.portal-strip__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.5rem 0.9rem;
+  border-radius: 999px;
+  border: 1px solid var(--border-strong);
+  background: color-mix(in oklch, var(--muted) 45%, transparent);
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--foreground);
+}
+
+.portal-strip__item svg {
+  width: 0.95rem;
+  height: 0.95rem;
+  color: var(--primary);
+  flex-shrink: 0;
+}
+
+/* ==========================================================================
+   Slide 8 — Roadmap
+   ========================================================================== */
+
+.roadmap-scroll {
+  margin-top: 2rem;
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 0.85rem;
+  position: relative;
+}
+
+.roadmap-scroll::before {
+  content: "";
+  position: absolute;
+  left: 1.1rem;
+  right: 1.1rem;
+  top: 1.65rem;
+  height: 1px;
+  background: color-mix(in oklch, white 10%, transparent);
+  z-index: -1;
+}
+
+@media (max-width: 1100px) {
+  .roadmap-scroll {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .roadmap-scroll::before {
+    display: none;
+  }
+}
+
+@media (max-width: 700px) {
+  .roadmap-scroll {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.roadmap-card {
+  padding: 1.1rem 1.15rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  min-height: 10rem;
+}
+
+.roadmap-card.done {
+  border-color: color-mix(in oklch, var(--success) 35%, var(--border));
+  background: color-mix(in oklch, var(--success) 7%, var(--card-solid));
+}
+
+.roadmap-card.active {
+  border-color: color-mix(in oklch, var(--primary) 45%, var(--border));
+  background: color-mix(in oklch, var(--primary) 9%, var(--card-solid));
+}
+
+.roadmap-card__phase {
+  font-family: var(--font-heading);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--muted-foreground);
+}
+
+.roadmap-card.active .roadmap-card__phase {
+  color: var(--primary);
+}
+
+.roadmap-card.done .roadmap-card__phase {
+  color: var(--success);
+}
+
+.roadmap-card__title {
+  font-size: 0.85rem;
+  font-weight: 650;
+  color: var(--foreground);
+  line-height: 1.3;
+}
+
+.roadmap-card__status {
+  margin-top: auto;
+  font-size: 0.74rem;
+  line-height: 1.45;
+  color: var(--muted-foreground);
+}
+
+.roadmap-status-row {
+  margin-top: 1.5rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.5rem;
+}
+
+.status-legend {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.78rem;
+  color: var(--muted-foreground);
+}
+
+.status-legend .dot {
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 999px;
+}
+
+.status-legend .dot.done {
+  background: var(--success);
+}
+
+.status-legend .dot.active {
+  background: var(--primary);
+}
+
+.status-legend .dot.pending {
+  background: color-mix(in oklch, white 22%, transparent);
+}
+
+/* ==========================================================================
+   Slide 9 — Value cards
+   ========================================================================== */
+
+.value-grid {
+  margin-top: 1.4rem;
+  gap: 0.85rem;
+}
+
+.value-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  padding: 1.2rem 1.3rem;
+}
+
+.value-card__who {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+}
+
+.value-card__who .icon-badge {
+  width: 2.35rem;
+  height: 2.35rem;
+}
+
+.value-card__who .icon-badge svg {
+  width: 1.15rem;
+  height: 1.15rem;
+}
+
+.value-card__who h4 {
+  font-size: 0.95rem;
+  font-weight: 650;
+  color: var(--foreground);
+}
+
+.value-card p {
+  font-size: 0.82rem;
+  color: var(--muted-foreground);
+  line-height: 1.55;
+}
+
+/* Per-persona visual proof: each card gets a small, concrete illustration
+   of its advantage rather than just another sentence of claims. */
+
+.compare-row {
+  margin-top: auto;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.compare-item {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  padding: 0.6rem 0.7rem;
+  border-radius: var(--radius-md);
+  background: color-mix(in oklch, var(--muted) 40%, transparent);
+}
+
+.compare-item--good {
+  border: 1px solid color-mix(in oklch, var(--primary) 30%, transparent);
+  background: color-mix(in oklch, var(--primary) 9%, transparent);
+}
+
+.compare-tag {
+  font-family: var(--font-heading);
+  font-size: 0.62rem;
+  font-weight: 650;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--muted-foreground);
+}
+
+.compare-item--good .compare-tag {
+  color: var(--primary);
+}
+
+.compare-text {
+  font-size: 0.76rem;
+  font-weight: 600;
+  color: var(--foreground);
+}
+
+.compare-arrow {
+  width: 0.9rem;
+  height: 0.9rem;
+  color: var(--muted-foreground);
+  flex-shrink: 0;
+}
+
+.mini-dash {
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 0.7rem 0.85rem;
+  border-radius: var(--radius-lg);
+  background: color-mix(in oklch, var(--muted) 35%, transparent);
+}
+
+.mini-dash-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  font-size: 0.75rem;
+  color: var(--muted-foreground);
+}
+
+.mini-dash-value {
+  font-weight: 650;
+  color: var(--foreground);
+  font-variant-numeric: tabular-nums;
+}
+
+.mini-dash-row--hidden {
+  padding-top: 0.35rem;
+  border-top: 1px dashed color-mix(in oklch, white 12%, transparent);
+}
+
+.mini-dash-row--hidden .mini-dash-value {
+  filter: blur(3px);
+  color: var(--muted-foreground);
+  user-select: none;
+  font-weight: 600;
+}
+
+.mini-lock-rows {
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.mini-lock-row {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.55rem 0.75rem;
+  border-radius: var(--radius-lg);
+  border: 1px solid color-mix(in oklch, var(--primary) 22%, var(--border));
+  background: color-mix(in oklch, var(--primary) 6%, transparent);
+  font-size: 0.74rem;
+  color: var(--foreground);
+}
+
+.mini-lock-row svg {
+  width: 0.85rem;
+  height: 0.85rem;
+  color: var(--primary);
+  flex-shrink: 0;
+}
+
+.mini-lock-row--muted {
+  border-color: var(--border);
+  background: color-mix(in oklch, var(--muted) 40%, transparent);
+  color: var(--muted-foreground);
+}
+
+.mini-lock-row--muted svg {
+  color: var(--muted-foreground);
+}
+
+.ecosystem-stack {
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.ecosystem-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.ecosystem-row--primary {
+  gap: 0.6rem;
+}
+
+.ecosystem-caption {
+  font-size: 0.72rem;
+  color: var(--muted-foreground);
+}
+
+.ecosystem-caption--inline {
+  font-style: normal;
+}
+
+/* ==========================================================================
+   Slide 10 — Closing
+   ========================================================================== */
+
+.slide--closing {
+  text-align: center;
+  align-items: center;
+}
+
+.closing-vision {
+  max-width: 40rem;
+  margin: 0 auto;
+  font-family: var(--font-heading);
+  font-size: clamp(1.9rem, 4vw, 3rem);
+  font-weight: 600;
+  line-height: 1.2;
+  color: var(--foreground);
+}
+
+.closing-vision .accent {
+  color: var(--primary);
+}
+
+.closing-tagline {
+  margin-top: 1.5rem;
+  max-width: 34rem;
+  margin-left: auto;
+  margin-right: auto;
+  font-size: 1rem;
+  line-height: 1.6;
+  color: var(--muted-foreground);
+}
+
+.closing-footer {
+  margin-top: 2.5rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+/* ==========================================================================
+   Print (export to PDF)
+   ========================================================================== */
+
+@media print {
+  .dot-nav,
+  .deck-controls,
+  .deck-footer,
+  .progress-rail,
+  .brand-mark,
+  .scroll-cue {
+    display: none !important;
+  }
+
+  html,
+  body {
+    overflow: visible;
+  }
+
+  .deck {
+    height: auto;
+    overflow: visible;
+  }
+
+  .slide {
+    height: auto;
+    min-height: 100vh;
+    overflow: visible;
+    page-break-after: always;
+    scroll-snap-align: none;
+  }
+}
+
+@media (max-width: 640px) {
+  .slide {
+    padding-left: 1.25rem;
+    padding-right: 1.25rem;
+  }
+
+  .brand-mark,
+  .deck-footer {
+    left: 1.25rem;
+  }
+}
