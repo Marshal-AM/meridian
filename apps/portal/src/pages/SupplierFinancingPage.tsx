@@ -13,9 +13,8 @@ import { Badge } from "../components/ui/Badge";
 import { Button } from "../components/ui/Button";
 import { Card, Surface } from "../components/ui/Surface";
 import { CustomSelect } from "../components/ui/CustomSelect";
-import { ChoiceCard, ChoiceCardGroup } from "../components/ui/ChoiceCard";
 import { DataTable } from "../components/ui/DataTable";
-import { Field, FieldGroup, FieldLabel } from "../components/ui/Field";
+import { Checkbox, Field, FieldGroup, FieldLabel } from "../components/ui/Field";
 import { Input } from "../components/ui/Input";
 import { PageTabBar } from "../components/ui/PageTabBar";
 import { truncateParty } from "../lib/utils";
@@ -298,23 +297,16 @@ export function SupplierFinancingPage() {
                   />
                 </Field>
               </div>
-              <Field>
-                <FieldLabel>Financier invitations</FieldLabel>
-                <ChoiceCardGroup>
-                  <ChoiceCard
-                    selected={inviteA}
-                    onSelectedChange={setInviteA}
-                    title="Invite Financier A"
-                    description="Include the first sealed-bid participant in this round."
-                  />
-                  <ChoiceCard
-                    selected={inviteB}
-                    onSelectedChange={setInviteB}
-                    title="Invite Financier B"
-                    description="Include the second sealed-bid participant in this round."
-                  />
-                </ChoiceCardGroup>
-              </Field>
+              <div className="flex flex-wrap gap-4">
+                <label className="flex cursor-pointer items-center gap-2.5 text-sm">
+                  <Checkbox checked={inviteA} onChange={(e) => setInviteA(e.target.checked)} />
+                  Invite Financier A
+                </label>
+                <label className="flex cursor-pointer items-center gap-2.5 text-sm">
+                  <Checkbox checked={inviteB} onChange={(e) => setInviteB(e.target.checked)} />
+                  Invite Financier B
+                </label>
+              </div>
               <Button type="submit">
                 <Clock className="size-4" />
                 Open Round

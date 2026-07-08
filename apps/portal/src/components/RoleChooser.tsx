@@ -31,7 +31,17 @@ export function RoleChooser() {
         <Logo to={null} size="landing" />
 
         <h1 className="landing-hero__title">
-          Privacy-native invoice financing on Canton
+          Privacy-native invoice financing{" "}
+          <span className="landing-hero__title-brand">
+            on
+            <img
+              src="/meridian-logo.png"
+              alt="Canton"
+              className="landing-hero__canton-logo"
+              width={385}
+              height={101}
+            />
+          </span>
         </h1>
         <p className="landing-hero__subtitle">
           Select your organization role to access the Meridian portal. Each persona has an

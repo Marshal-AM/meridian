@@ -47,7 +47,8 @@ export interface DataTableProps<T> {
 }
 
 const DEFAULT_PAGE_SIZE = 10;
-const DEFAULT_VISIBLE_ROWS = 10;
+/** Rows visible before the body scrolls; keeps the header sticky within the viewport. */
+const DEFAULT_VISIBLE_ROWS = 8;
 
 export function DataTable<T>({
   data,

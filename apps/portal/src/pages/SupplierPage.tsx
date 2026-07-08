@@ -1,14 +1,14 @@
 import { useCallback, useEffect, useState } from "react";
-import { FileText, Plus, Scale, Send, ShieldCheck } from "lucide-react";
+import { FileText, Plus, Scale, ShieldCheck } from "lucide-react";
 import { api, useNotifications, type SupplierReceivable } from "../api";
 import { usePageTab } from "../hooks/usePageTab";
 import { Alert, EmptyState, PageHeader } from "../components/ui/Alert";
 import { Badge } from "../components/ui/Badge";
 import { Button } from "../components/ui/Button";
-import { ChoiceCard } from "../components/ui/ChoiceCard";
+import { IssueInvoiceStepForm } from "../components/IssueInvoiceStepForm";
 import { Dialog } from "../components/ui/Dialog";
 import { Card, Surface } from "../components/ui/Surface";
-import { Field, FieldDescription, FieldGroup, FieldLabel } from "../components/ui/Field";
+import { Checkbox, Field, FieldDescription, FieldGroup, FieldLabel } from "../components/ui/Field";
 import { Input } from "../components/ui/Input";
 import { PageTabBar } from "../components/ui/PageTabBar";
 import { objectToRecordFields, RecordCardGrid } from "../components/ui/RecordCardGrid";
@@ -39,6 +39,7 @@ export function SupplierPage() {
   const [creatingPolicy, setCreatingPolicy] = useState(false);
   const [registerOpen, setRegisterOpen] = useState(false);
   const [postingId, setPostingId] = useState<string | null>(null);
+  const [invoiceFormToken, setInvoiceFormToken] = useState(0);
   const [faceValue, setFaceValue] = useState("5000");
   const [currency, setCurrency] = useState("USD");
   const [dueDate, setDueDate] = useState("2026-12-31");
@@ -67,8 +68,7 @@ export function SupplierPage() {
     refresh();
   }, [refresh]);
 
-  async function handlePropose(e: React.FormEvent) {
-    e.preventDefault();
+  async function handlePropose() {
     setProposing(true);
     setError("");
     setSuccess("");
@@ -80,6 +80,7 @@ export function SupplierPage() {
         consentGranted,
       });
       setSuccess(`Proposal created — contract ${result.contractId.slice(0, 24)}…`);
+      setInvoiceFormToken((t) => t + 1);
       await refresh();
     } catch (err) {
       setError(String(err));
@@ -146,55 +147,24 @@ export function SupplierPage() {
 
       {tab === "invoices" && (
         <div className="space-y-6">
-          <Surface title="Issue Invoice" emphasis>
-            <p className="mb-4 text-sm text-muted-foreground">
+          <Surface title="Issue Invoice" emphasis size="fit">
+            <p className="mb-2 text-sm text-muted-foreground">
               Propose a receivable to your buyer. You may grant assignment consent inline for this
               invoice, or rely on a standing policy registered under Assignment Consent.
             </p>
-            <form onSubmit={handlePropose}>
-              <FieldGroup>
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <Field>
-                    <FieldLabel htmlFor="faceValue">Face Value</FieldLabel>
-                    <Input
-                      id="faceValue"
-                      value={faceValue}
-                      onChange={(e) => setFaceValue(e.target.value)}
-                    />
-                  </Field>
-                  <Field>
-                    <FieldLabel htmlFor="currency">Currency</FieldLabel>
-                    <Input
-                      id="currency"
-                      value={currency}
-                      onChange={(e) => setCurrency(e.target.value)}
-                    />
-                  </Field>
-                  <Field>
-                    <FieldLabel htmlFor="dueDate">Due Date</FieldLabel>
-                    <Input
-                      id="dueDate"
-                      type="date"
-                      value={dueDate}
-                      onChange={(e) => setDueDate(e.target.value)}
-                    />
-                  </Field>
-                </div>
-                <Field>
-                  <FieldLabel>Assignment consent</FieldLabel>
-                  <ChoiceCard
-                    selected={consentGranted}
-                    onSelectedChange={setConsentGranted}
-                    title="Grant assignment consent inline on this proposal"
-                    description="One-time consent for this invoice only. For recurring trade, register a standing policy under Assignment Consent."
-                  />
-                </Field>
-                <Button type="submit" disabled={proposing}>
-                  <Send className="size-4" />
-                  {proposing ? "Proposing…" : "Propose Invoice to Buyer"}
-                </Button>
-              </FieldGroup>
-            </form>
+            <IssueInvoiceStepForm
+              key={invoiceFormToken}
+              faceValue={faceValue}
+              onFaceValueChange={setFaceValue}
+              currency={currency}
+              onCurrencyChange={setCurrency}
+              dueDate={dueDate}
+              onDueDateChange={setDueDate}
+              consentGranted={consentGranted}
+              onConsentGrantedChange={setConsentGranted}
+              proposing={proposing}
+              onSubmit={handlePropose}
+            />
           </Surface>
 
           {receivables.length === 0 ? (
@@ -339,13 +309,22 @@ export function SupplierPage() {
                   </FieldDescription>
                 </Field>
                 <Field>
-                  <FieldLabel>Assignment authorization</FieldLabel>
-                  <ChoiceCard
-                    selected={allowsAssignment}
-                    onSelectedChange={setAllowsAssignment}
-                    title="Allow receivable assignment to financiers"
-                    description="When enabled, financiers can bid on posted receivables covered by this agreement."
-                  />
+                  <label className="flex cursor-pointer items-start gap-2.5 text-sm">
+                    <Checkbox
+                      className="mt-0.5"
+                      checked={allowsAssignment}
+                      onChange={(e) => setAllowsAssignment(e.target.checked)}
+                    />
+                    <span>
+                      <span className="font-medium text-foreground">
+                        Allow receivable assignment to financiers
+                      </span>
+                      <FieldDescription className="mt-1">
+                        When enabled, financiers can bid on posted receivables covered by this
+                        agreement.
+                      </FieldDescription>
+                    </span>
+                  </label>
                 </Field>
                 <div className="flex justify-end gap-2">
                   <Button

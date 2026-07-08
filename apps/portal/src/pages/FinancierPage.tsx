@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Bot, Gavel, Plus } from "lucide-react";
 import type { AgentRunStatus, BiddingMandateSummary } from "@meridian/shared-types";
 import {
@@ -15,15 +15,186 @@ import { Alert, EmptyState, InlineCode, PageHeader } from "../components/ui/Aler
 import { Badge } from "../components/ui/Badge";
 import { Button } from "../components/ui/Button";
 import { Card, Surface } from "../components/ui/Surface";
-import { ChoiceCard } from "../components/ui/ChoiceCard";
 import { DataTable } from "../components/ui/DataTable";
-import { Field, FieldGroup, FieldLabel } from "../components/ui/Field";
+import { Checkbox, Field, FieldGroup, FieldLabel } from "../components/ui/Field";
 import { Input } from "../components/ui/Input";
 import { PageTabBar } from "../components/ui/PageTabBar";
-import { truncateParty } from "../lib/utils";
+import { CollapsibleSection } from "../components/ui/CollapsibleSection";
+import { cn, truncateParty } from "../lib/utils";
+
+function canSubmitBid(inv: FinancierInvitation) {
+  return inv.roundState === "RoundOpen" || inv.roundState === "StaticReferenceFallback";
+}
+
+function categorizeInvitations(invitations: FinancierInvitation[]) {
+  const open: FinancierInvitation[] = [];
+  const pending: FinancierInvitation[] = [];
+  const awarded: FinancierInvitation[] = [];
+
+  for (const inv of invitations) {
+    if (inv.roundState === "RoundOpen" || inv.roundState === "StaticReferenceFallback") {
+      open.push(inv);
+    } else if (inv.roundState === "Awarded") {
+      awarded.push(inv);
+    } else {
+      pending.push(inv);
+    }
+  }
+
+  return { open, pending, awarded };
+}
+
+interface InvitationCardProps {
+  inv: FinancierInvitation;
+  myBids: BidSummary[];
+  bidSubmitting: boolean;
+  advanceByRound: Record<string, string>;
+  discountByRound: Record<string, string>;
+  onAdvanceChange: (contractId: string, value: string) => void;
+  onDiscountChange: (contractId: string, value: string) => void;
+  onSubmitBid: (contractId: string, requestId: string, useStaticReference: boolean) => void;
+}
+
+function InvitationCard({
+  inv,
+  myBids,
+  bidSubmitting,
+  advanceByRound,
+  discountByRound,
+  onAdvanceChange,
+  onDiscountChange,
+  onSubmitBid,
+}: InvitationCardProps) {
+  const biddable = canSubmitBid(inv);
+
+  return (
+    <Card
+      className={cn("invitation-card gap-0", biddable && "invitation-card--biddable")}
+    >
+      <div className="space-y-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <strong className="font-heading">{inv.requestId}</strong>
+          <Badge>{inv.roundState}</Badge>
+        </div>
+        <p className="text-sm text-muted-foreground">
+          Supplier: {truncateParty(inv.supplier, 24)} · Deadline {inv.deadline}
+        </p>
+        <p className="text-sm text-muted-foreground">
+          Pricing band {inv.pricingBandMin}–{inv.pricingBandMax}
+        </p>
+        <p className="text-sm text-muted-foreground">
+          Credit profile: {inv.creditProfileStub}
+        </p>
+
+        {biddable ? (
+          <form
+            className="border-t border-border pt-4"
+            onSubmit={(e) => {
+              e.preventDefault();
+              onSubmitBid(
+                inv.contractId,
+                inv.requestId,
+                inv.roundState === "StaticReferenceFallback"
+              );
+            }}
+          >
+            <FieldGroup className="gap-3">
+              <div className="grid grid-cols-1 gap-3">
+                <Field>
+                  <FieldLabel>Advance amount</FieldLabel>
+                  <Input
+                    value={advanceByRound[inv.contractId] ?? "1000"}
+                    onChange={(e) => onAdvanceChange(inv.contractId, e.target.value)}
+                  />
+                </Field>
+                <Field>
+                  <FieldLabel>Discount rate (decimal)</FieldLabel>
+                  <Input
+                    value={discountByRound[inv.contractId] ?? "0.05"}
+                    onChange={(e) => onDiscountChange(inv.contractId, e.target.value)}
+                  />
+                </Field>
+              </div>
+              <Button type="submit" disabled={bidSubmitting} className="w-full">
+                <Gavel className="size-4" />
+                {bidSubmitting
+                  ? "Submitting…"
+                  : myBids.some((b) => b.requestId === inv.requestId)
+                    ? inv.roundState === "StaticReferenceFallback"
+                      ? "Replace Static Reference Bid"
+                      : "Replace Oracle-Anchored Bid"
+                    : inv.roundState === "StaticReferenceFallback"
+                      ? "Submit Static Reference Bid"
+                      : "Submit Oracle-Anchored Bid"}
+              </Button>
+            </FieldGroup>
+          </form>
+        ) : null}
+      </div>
+    </Card>
+  );
+}
+
+interface InvitationSectionGridProps {
+  invitations: FinancierInvitation[];
+  myBids: BidSummary[];
+  bidSubmitting: boolean;
+  advanceByRound: Record<string, string>;
+  discountByRound: Record<string, string>;
+  onAdvanceChange: (contractId: string, value: string) => void;
+  onDiscountChange: (contractId: string, value: string) => void;
+  onSubmitBid: (contractId: string, requestId: string, useStaticReference: boolean) => void;
+}
+
+function InvitationSectionGrid({
+  invitations,
+  myBids,
+  bidSubmitting,
+  advanceByRound,
+  discountByRound,
+  onAdvanceChange,
+  onDiscountChange,
+  onSubmitBid,
+}: InvitationSectionGridProps) {
+  if (invitations.length === 0) {
+    return <EmptyState>No rounds in this section.</EmptyState>;
+  }
+
+  const grid = (
+    <div className="invitation-card-grid">
+      {invitations.map((inv) => (
+        <InvitationCard
+          key={inv.contractId}
+          inv={inv}
+          myBids={myBids}
+          bidSubmitting={bidSubmitting}
+          advanceByRound={advanceByRound}
+          discountByRound={discountByRound}
+          onAdvanceChange={onAdvanceChange}
+          onDiscountChange={onDiscountChange}
+          onSubmitBid={onSubmitBid}
+        />
+      ))}
+    </div>
+  );
+
+  if (invitations.length <= 6) {
+    return grid;
+  }
+
+  return (
+    <div
+      className="invitation-card-grid-viewport"
+      style={{ "--invitation-card-max-rows": 2 } as React.CSSProperties}
+    >
+      {grid}
+    </div>
+  );
+}
 
 export function FinancierPage() {
   const [tab, setTab] = usePageTab(["deal-flow", "agent", "positions"] as const, "deal-flow");
+  const [dealFlowView, setDealFlowView] = useState<"invitations" | "bids">("invitations");
   const [invitations, setInvitations] = useState<FinancierInvitation[]>([]);
   const [myBids, setMyBids] = useState<BidSummary[]>([]);
   const [mandates, setMandates] = useState<BiddingMandateSummary[]>([]);
@@ -35,6 +206,12 @@ export function FinancierPage() {
   const [agentTicking, setAgentTicking] = useState(false);
   const [advanceByRound, setAdvanceByRound] = useState<Record<string, string>>({});
   const [discountByRound, setDiscountByRound] = useState<Record<string, string>>({});
+  const [bidSubmitting, setBidSubmitting] = useState(false);
+  const [invitationSectionsOpen, setInvitationSectionsOpen] = useState({
+    open: true,
+    pending: false,
+    awarded: false,
+  });
   const [mandateForm, setMandateForm] = useState({
     mandateId: `mandate-${Date.now()}`,
     maxExposure: "2000",
@@ -102,6 +279,7 @@ export function FinancierPage() {
     const advanceAmount = advanceByRound[requestContractId] ?? "1000";
     const discountRate = discountByRound[requestContractId] ?? "0.05";
     const hasBid = myBids.some((b) => b.requestId === requestId);
+    setBidSubmitting(true);
     try {
       const submit = hasBid ? api.replaceFinancingBid : api.submitFinancingBid;
       const result = await submit(requestContractId, {
@@ -117,6 +295,8 @@ export function FinancierPage() {
       await refresh();
     } catch (err) {
       setError(String(err));
+    } finally {
+      setBidSubmitting(false);
     }
   }
 
@@ -179,6 +359,21 @@ export function FinancierPage() {
 
   const activeMandate = mandates.find((m) => m.agentEnabled && !m.revoked);
   const agentOnline = isAgentRuntimeOnline(agentStatus);
+  const invitationGroups = useMemo(() => categorizeInvitations(invitations), [invitations]);
+
+  const invitationGridProps = {
+    myBids,
+    bidSubmitting,
+    advanceByRound,
+    discountByRound,
+    onAdvanceChange: (contractId: string, value: string) =>
+      setAdvanceByRound((m) => ({ ...m, [contractId]: value })),
+    onDiscountChange: (contractId: string, value: string) =>
+      setDiscountByRound((m) => ({ ...m, [contractId]: value })),
+    onSubmitBid: (contractId: string, requestId: string, useStaticReference: boolean) => {
+      void handleSubmitBid(contractId, requestId, useStaticReference);
+    },
+  };
 
   return (
     <div className="space-y-6">
@@ -339,17 +534,15 @@ export function FinancierPage() {
                   />
                 </Field>
               </div>
-              <Field>
-                <FieldLabel>Agent automation</FieldLabel>
-                <ChoiceCard
-                  selected={mandateForm.agentEnabled}
-                  onSelectedChange={(value) =>
-                    setMandateForm((f) => ({ ...f, agentEnabled: value }))
+              <label className="flex cursor-pointer items-center gap-2.5 text-sm">
+                <Checkbox
+                  checked={mandateForm.agentEnabled}
+                  onChange={(e) =>
+                    setMandateForm((f) => ({ ...f, agentEnabled: e.target.checked }))
                   }
-                  title="Enable agent"
-                  description="Allow the Groq-powered bidding agent to submit mandate-constrained bids on your behalf."
                 />
-              </Field>
+                Enable agent
+              </label>
               <Button type="submit">
                 <Plus className="size-4" />
                 Create mandate on-ledger
@@ -414,138 +607,119 @@ export function FinancierPage() {
       )}
 
       {tab === "deal-flow" && (
-      <>
-      <div>
-        <h2 className="mb-4 font-heading text-lg font-semibold text-foreground">
-          Invitations ({invitations.length})
-        </h2>
-        {invitations.length === 0 ? (
-          <EmptyState>No open invitations.</EmptyState>
-        ) : (
-          <div className="grid gap-4">
-            {invitations.map((inv) => (
-              <Card key={inv.contractId}>
-                <div className="space-y-3">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <strong className="font-heading">{inv.requestId}</strong>
-                    <Badge>{inv.roundState}</Badge>
-                  </div>
-                  <p className="text-sm text-muted-foreground">
-                    Supplier: {truncateParty(inv.supplier, 24)} · Deadline {inv.deadline}
-                  </p>
-                  <p className="text-sm text-muted-foreground">
-                    Pricing band {inv.pricingBandMin}–{inv.pricingBandMax}
-                  </p>
-                  <p className="text-sm text-muted-foreground">
-                    Credit profile: {inv.creditProfileStub}
-                  </p>
+      <div className="space-y-6">
+        <p className="text-sm text-muted-foreground">
+          Rounds are grouped by status. Open rounds accept bids inline; pending and
+          awarded history stay collapsible so large volumes remain easy to scan.
+        </p>
 
-                  {(inv.roundState === "RoundOpen" ||
-                    inv.roundState === "StaticReferenceFallback") && (
-                    <form
-                      className="border-t border-border pt-4"
-                      onSubmit={(e) => {
-                        e.preventDefault();
-                        handleSubmitBid(
-                          inv.contractId,
-                          inv.requestId,
-                          inv.roundState === "StaticReferenceFallback"
-                        );
-                      }}
-                    >
-                      <FieldGroup>
-                        <div className="grid gap-4 sm:grid-cols-2">
-                          <Field>
-                            <FieldLabel>Advance amount</FieldLabel>
-                            <Input
-                              value={advanceByRound[inv.contractId] ?? "1000"}
-                              onChange={(e) =>
-                                setAdvanceByRound((m) => ({
-                                  ...m,
-                                  [inv.contractId]: e.target.value,
-                                }))
-                              }
-                            />
-                          </Field>
-                          <Field>
-                            <FieldLabel>Discount rate (decimal)</FieldLabel>
-                            <Input
-                              value={discountByRound[inv.contractId] ?? "0.05"}
-                              onChange={(e) =>
-                                setDiscountByRound((m) => ({
-                                  ...m,
-                                  [inv.contractId]: e.target.value,
-                                }))
-                              }
-                            />
-                          </Field>
-                        </div>
-                        <Button type="submit">
-                          <Gavel className="size-4" />
-                          {myBids.some((b) => b.requestId === inv.requestId)
-                            ? inv.roundState === "StaticReferenceFallback"
-                              ? "Replace Static Reference Bid"
-                              : "Replace Oracle-Anchored Bid"
-                            : inv.roundState === "StaticReferenceFallback"
-                              ? "Submit Static Reference Bid"
-                              : "Submit Oracle-Anchored Bid"}
-                        </Button>
-                      </FieldGroup>
-                    </form>
-                  )}
-                </div>
-              </Card>
-            ))}
+        <PageTabBar
+          tabs={[
+            { id: "invitations", label: "Invitations", count: invitations.length },
+            { id: "bids", label: "My Bids", count: myBids.length },
+          ]}
+          activeTab={dealFlowView}
+          onTabChange={(id) => setDealFlowView(id as "invitations" | "bids")}
+        />
+
+        {dealFlowView === "invitations" && (
+          <div className="space-y-4">
+            {invitations.length === 0 ? (
+              <EmptyState>No invitations.</EmptyState>
+            ) : (
+              <>
+                <CollapsibleSection
+                  title="Open Rounds"
+                  count={invitationGroups.open.length}
+                  open={invitationSectionsOpen.open}
+                  onOpenChange={(open) =>
+                    setInvitationSectionsOpen((s) => ({ ...s, open }))
+                  }
+                  emphasis
+                >
+                  <InvitationSectionGrid
+                    invitations={invitationGroups.open}
+                    {...invitationGridProps}
+                  />
+                </CollapsibleSection>
+
+                <CollapsibleSection
+                  title="Pending"
+                  count={invitationGroups.pending.length}
+                  open={invitationSectionsOpen.pending}
+                  onOpenChange={(isOpen) =>
+                    setInvitationSectionsOpen((s) => ({ ...s, pending: isOpen }))
+                  }
+                >
+                  <InvitationSectionGrid
+                    invitations={invitationGroups.pending}
+                    {...invitationGridProps}
+                  />
+                </CollapsibleSection>
+
+                <CollapsibleSection
+                  title="Awarded"
+                  count={invitationGroups.awarded.length}
+                  open={invitationSectionsOpen.awarded}
+                  onOpenChange={(isOpen) =>
+                    setInvitationSectionsOpen((s) => ({ ...s, awarded: isOpen }))
+                  }
+                >
+                  <InvitationSectionGrid
+                    invitations={invitationGroups.awarded}
+                    {...invitationGridProps}
+                  />
+                </CollapsibleSection>
+              </>
+            )}
+          </div>
+        )}
+
+        {dealFlowView === "bids" && (
+          <div>
+            {myBids.length === 0 ? (
+              <EmptyState>No active bids.</EmptyState>
+            ) : (
+              <DataTable
+                data={myBids}
+                rowKey={(bid) => bid.contractId}
+                emptyMessage="No active bids."
+                detailTitle={(bid) => bid.requestId}
+                detailFields={(bid) => [
+                  { label: "Advance", value: bid.advanceAmount },
+                  { label: "Discount", value: bid.discountRate },
+                  { label: "Mode", value: bid.mode },
+                  { label: "Agent", value: bid.viaAgent ? bid.mandateId ?? "yes" : "manual" },
+                  { label: "Report ID", value: bid.reportId, mono: true },
+                  { label: "Submitted", value: bid.ledgerTime },
+                  { label: "Contract ID", value: bid.contractId, mono: true },
+                ]}
+                columns={[
+                  { id: "round", header: "Round", cell: (bid) => bid.requestId },
+                  { id: "advance", header: "Advance", cell: (bid) => bid.advanceAmount },
+                  { id: "discount", header: "Discount", cell: (bid) => bid.discountRate },
+                  {
+                    id: "mode",
+                    header: "Mode",
+                    cell: (bid) => <Badge variant="outline">{bid.mode}</Badge>,
+                  },
+                  {
+                    id: "agent",
+                    header: "Agent",
+                    cell: (bid) => (bid.viaAgent ? bid.mandateId ?? "yes" : "manual"),
+                  },
+                  {
+                    id: "report",
+                    header: "Report",
+                    cell: (bid) => `${bid.reportId.slice(0, 16)}…`,
+                  },
+                  { id: "submitted", header: "Submitted", cell: (bid) => bid.ledgerTime },
+                ]}
+              />
+            )}
           </div>
         )}
       </div>
-
-      <div>
-        <h2 className="mb-4 font-heading text-lg font-semibold text-foreground">
-          My Bids ({myBids.length})
-        </h2>
-        {myBids.length === 0 ? (
-          <EmptyState>No active bids.</EmptyState>
-        ) : (
-          <DataTable
-            data={myBids}
-            rowKey={(bid) => bid.contractId}
-            emptyMessage="No active bids."
-            detailTitle={(bid) => bid.requestId}
-            detailFields={(bid) => [
-              { label: "Advance", value: bid.advanceAmount },
-              { label: "Discount", value: bid.discountRate },
-              { label: "Mode", value: bid.mode },
-              { label: "Agent", value: bid.viaAgent ? bid.mandateId ?? "yes" : "manual" },
-              { label: "Report ID", value: bid.reportId, mono: true },
-              { label: "Submitted", value: bid.ledgerTime },
-              { label: "Contract ID", value: bid.contractId, mono: true },
-            ]}
-            columns={[
-              { id: "round", header: "Round", cell: (bid) => bid.requestId },
-              { id: "advance", header: "Advance", cell: (bid) => bid.advanceAmount },
-              { id: "discount", header: "Discount", cell: (bid) => bid.discountRate },
-              {
-                id: "mode",
-                header: "Mode",
-                cell: (bid) => <Badge variant="outline">{bid.mode}</Badge>,
-              },
-              {
-                id: "agent",
-                header: "Agent",
-                cell: (bid) => (bid.viaAgent ? bid.mandateId ?? "yes" : "manual"),
-              },
-              {
-                id: "report",
-                header: "Report",
-                cell: (bid) => `${bid.reportId.slice(0, 16)}…`,
-              },
-              { id: "submitted", header: "Submitted", cell: (bid) => bid.ledgerTime },
-            ]}
-          />
-        )}
-      </div>
-      </>
       )}
 
       {tab === "positions" && (

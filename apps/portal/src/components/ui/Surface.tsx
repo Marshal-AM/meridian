@@ -7,11 +7,14 @@ export function Surface({
   title,
   action,
   children,
+  size = "full",
   ...props
 }: React.HTMLAttributes<HTMLElement> & {
   emphasis?: boolean;
   title?: string;
   action?: ReactNode;
+  /** full = page width; fit = shrink-wrap to form content (zklaim-style) */
+  size?: "full" | "fit" | "md" | "lg";
 }) {
   return (
     <section
@@ -19,6 +22,9 @@ export function Surface({
       className={cn(
         "flex flex-col rounded-[min(var(--radius-3xl),24px)] border border-border bg-card p-5 shadow-[0_1px_0_0_color-mix(in_oklch,white_4%,transparent)_inset,0_8px_24px_-12px_rgb(0_0_0/0.6)] backdrop-blur-2xl",
         emphasis && "border-primary/25 bg-[color-mix(in_oklch,var(--primary)_10%,var(--card))]",
+        size === "fit" && "surface--fit",
+        size === "md" && "mx-auto w-full min-w-0 max-w-md",
+        size === "lg" && "mx-auto w-full min-w-0 max-w-lg",
         className
       )}
       {...props}
