@@ -246,6 +246,7 @@ export function OpsPage() {
     entries: regulatorLogEntries,
     info: regulatorInfo,
     error: regulatorLogError,
+    logLedger: regulatorLogLedger,
     clear: clearRegulatorLog,
   } = useActivityLog("ops-regulator");
   const {
@@ -351,11 +352,11 @@ export function OpsPage() {
       jurisdiction: grantForm.jurisdiction,
     });
     try {
-      await api.createOpsRegulatorGrant({
+      const result = await api.createOpsRegulatorGrant({
         grantId: grantForm.grantId,
         jurisdiction: grantForm.jurisdiction,
       });
-      regulatorInfo("Jurisdiction grant created on-ledger", {
+      regulatorLogLedger("info", "Jurisdiction grant created on-ledger", result, {
         grantId: grantForm.grantId,
         jurisdiction: grantForm.jurisdiction,
       });
@@ -375,8 +376,8 @@ export function OpsPage() {
     regulatorInfo("Revoking jurisdiction grant", { grantId, contractId });
     setActionError("");
     try {
-      await api.revokeOpsRegulatorGrant(contractId);
-      regulatorInfo("Jurisdiction grant revoked", { grantId });
+      const result = await api.revokeOpsRegulatorGrant(contractId);
+      regulatorLogLedger("info", "Jurisdiction grant revoked", result, { grantId });
       await refreshRegulator();
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -395,11 +396,11 @@ export function OpsPage() {
       jurisdiction: observerForm.jurisdiction,
     });
     try {
-      await api.grantRegulatorObserver(
+      const result = await api.grantRegulatorObserver(
         observerForm.receivableContractId.trim(),
         observerForm.jurisdiction
       );
-      regulatorInfo("Observer rights granted on receivable", {
+      regulatorLogLedger("info", "Observer rights granted on receivable", result, {
         receivableContractId: observerForm.receivableContractId.trim(),
         jurisdiction: observerForm.jurisdiction,
       });

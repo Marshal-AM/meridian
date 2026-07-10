@@ -1,4 +1,4 @@
-import type { FetchResult } from "@meridian/shared-types";
+import type { FetchResult, LedgerRef } from "@meridian/shared-types";
 import {
   buildSubmitBidCommand,
   extractCreatedContractId,
@@ -284,14 +284,27 @@ export class AgentLoop {
             commands: [cmd],
           });
 
+          const updateId = result.transaction?.updateId;
           decision.submitted = true;
+          decision.transactionId = updateId;
           decision.bidContractId = extractCreatedContractId(result, "Bid") ?? undefined;
+
+          const transactions: LedgerRef[] = [];
+          if (updateId) {
+            transactions.push({ kind: "transaction", id: updateId, label: "Update" });
+          }
+          if (decision.bidContractId) {
+            transactions.push({ kind: "contract", id: decision.bidContractId, label: "Bid" });
+          }
+
           this.logBuffer.log("info", `${inv.requestId} bid submitted on-ledger`, {
             detail: {
               advanceAmount,
               discountRate: proposal.discountRate,
               bidContractId: decision.bidContractId?.slice(0, 16),
+              transactionId: updateId?.slice(0, 16),
             },
+            transactions,
           });
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);

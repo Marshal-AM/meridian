@@ -835,6 +835,34 @@
   word-break: break-word;
 }
 
+.activity-log__ledger {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.375rem;
+  margin-top: 0.25rem;
+}
+
+.activity-log__explorer-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.2rem 0.5rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: color-mix(in oklch, var(--muted) 25%, transparent);
+  color: var(--foreground);
+  font-size: 0.6875rem;
+  line-height: 1.4;
+  text-decoration: none;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.activity-log__explorer-link:hover {
+  background: color-mix(in oklch, var(--muted) 55%, transparent);
+  border-color: color-mix(in oklch, var(--border) 80%, var(--foreground));
+}
+
 .activity-log__detail {
   grid-column: 1 / -1;
   margin: 0.125rem 0 0;

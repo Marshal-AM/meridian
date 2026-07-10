@@ -34,7 +34,7 @@ export function FinancierSyndicationPage() {
   const [shareBps, setShareBps] = useState("4000");
   const [discountRate, setDiscountRate] = useState("0.05");
   const [offeringBids, setOfferingBids] = useState<Record<string, string>>({});
-  const { entries: logEntries, info, error: logError, clear: clearLog } =
+  const { entries: logEntries, info, error: logError, clear: clearLog, logLedger } =
     useActivityLog("financier-syndication");
 
   const refresh = useCallback(async () => {
@@ -111,11 +111,14 @@ export function FinancierSyndicationPage() {
       receivableCid: position.contractId,
     });
     try {
-      await api.openSyndicationOffering({
+      const result = await api.openSyndicationOffering({
         receivableCid: position.contractId,
         offeringId,
       });
-      info("Syndication offering opened on-ledger", { offeringId, receivableId: position.receivableId });
+      logLedger("info", "Syndication offering opened on-ledger", result, {
+        offeringId,
+        receivableId: position.receivableId,
+      });
       setError("");
       await refresh();
     } catch (err) {
@@ -134,12 +137,15 @@ export function FinancierSyndicationPage() {
       useStaticReference: useStatic,
     });
     try {
-      await api.submitSyndicationBid(offeringContractId, {
+      const result = await api.submitSyndicationBid(offeringContractId, {
         shareBps: Number(shareBps),
         discountRate,
         useStaticReference: useStatic,
       });
-      info("Syndication interest submitted on-ledger", { offeringId, shareBps });
+      logLedger("info", "Syndication interest submitted on-ledger", result, {
+        offeringId,
+        shareBps,
+      });
       setError("");
       await refresh();
     } catch (err) {
@@ -157,8 +163,11 @@ export function FinancierSyndicationPage() {
     }
     info("Awarding syndication bid", { offeringId, winningBidCid: bidCid });
     try {
-      await api.awardSyndicationBid(offeringContractId, { winningBidCid: bidCid });
-      info("Syndication bid awarded on-ledger", { offeringId, winningBidCid: bidCid });
+      const result = await api.awardSyndicationBid(offeringContractId, { winningBidCid: bidCid });
+      logLedger("info", "Syndication bid awarded on-ledger", result, {
+        offeringId,
+        winningBidCid: bidCid,
+      });
       setError("");
       await refresh();
     } catch (err) {

@@ -221,6 +221,7 @@ export function FinancierPage() {
     info: dealFlowInfo,
     warn: dealFlowWarn,
     error: dealFlowLogError,
+    logLedger: dealFlowLogLedger,
     clear: clearDealFlowLog,
   } = useActivityLog("financier-deal-flow");
   const [invitationSectionsOpen, setInvitationSectionsOpen] = useState({
@@ -320,9 +321,14 @@ export function FinancierPage() {
         const message = "Warning: oracle feed was stale — bid may be rejected on-ledger.";
         setError(message);
         dealFlowWarn("Bid submitted with stale oracle feed", { requestId });
+        dealFlowLogLedger("warn", "Manual bid submitted on-ledger (stale oracle)", result, {
+          requestId,
+          advanceAmount,
+          discountRate,
+        });
       } else {
         setError("");
-        dealFlowInfo("Manual bid submitted on-ledger", {
+        dealFlowLogLedger("info", "Manual bid submitted on-ledger", result, {
           requestId,
           advanceAmount,
           discountRate,
@@ -342,7 +348,7 @@ export function FinancierPage() {
   async function handleCreateMandate(e: React.FormEvent) {
     e.preventDefault();
     try {
-      await api.createFinancierMandate({
+      const result = await api.createFinancierMandate({
         mandateId: mandateForm.mandateId,
         maxExposure: mandateForm.maxExposure,
         minSpread: mandateForm.minSpread,
@@ -351,6 +357,9 @@ export function FinancierPage() {
           .map((s) => s.trim())
           .filter(Boolean),
         agentEnabled: mandateForm.agentEnabled,
+      });
+      dealFlowLogLedger("info", "Bidding mandate created on-ledger", result, {
+        mandateId: mandateForm.mandateId,
       });
       setMandateForm((f) => ({ ...f, mandateId: `mandate-${Date.now()}` }));
       await refresh();
@@ -396,9 +405,12 @@ export function FinancierPage() {
 
   async function toggleAgentEnabled(mandate: BiddingMandateSummary) {
     try {
-      await api.updateFinancierMandate(mandate.contractId, {
+      const result = await api.updateFinancierMandate(mandate.contractId, {
         action: "setAgentEnabled",
         agentEnabled: !mandate.agentEnabled,
+      });
+      dealFlowLogLedger("info", `Mandate agent ${mandate.agentEnabled ? "disabled" : "enabled"} on-ledger`, result, {
+        mandateId: mandate.mandateId,
       });
       await refresh();
     } catch (err) {

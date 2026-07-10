@@ -251,6 +251,15 @@ export interface BiddingMandateSummary {
 /** Structured activity log line for in-app observability panels. */
 export type ActivityLogLevel = "debug" | "info" | "warn" | "error";
 
+export type LedgerRefKind = "transaction" | "contract";
+
+/** On-ledger identifier linkable in Canton explorer. */
+export interface LedgerRef {
+  kind: LedgerRefKind;
+  id: string;
+  label?: string;
+}
+
 export interface ActivityLogEntry {
   id: string;
   timestamp: string;
@@ -258,6 +267,8 @@ export interface ActivityLogEntry {
   source: string;
   message: string;
   detail?: Record<string, unknown>;
+  /** On-ledger update / contract refs for explorer deep-links. */
+  transactions?: LedgerRef[];
 }
 
 /** Agent runtime tick status (off-ledger observability). */
@@ -270,6 +281,7 @@ export interface AgentBidDecision {
   rationale: string;
   submitted: boolean;
   bidContractId?: string;
+  transactionId?: string;
   ledgerError?: string;
 }
 

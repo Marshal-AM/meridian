@@ -1,11 +1,15 @@
-import type { ActivityLogEntry, ActivityLogLevel } from "@meridian/shared-types";
+import type { ActivityLogEntry, ActivityLogLevel, LedgerRef } from "@meridian/shared-types";
 
 let clientSeq = 0;
 
 export function createClientLogEntry(
   level: ActivityLogLevel,
   message: string,
-  options?: { source?: string; detail?: Record<string, unknown> }
+  options?: {
+    source?: string;
+    detail?: Record<string, unknown>;
+    transactions?: LedgerRef[];
+  }
 ): ActivityLogEntry {
   clientSeq += 1;
   return {
@@ -15,6 +19,7 @@ export function createClientLogEntry(
     source: options?.source ?? "financier-portal",
     message,
     detail: options?.detail,
+    transactions: options?.transactions,
   };
 }
 

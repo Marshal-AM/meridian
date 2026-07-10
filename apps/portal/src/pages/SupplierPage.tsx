@@ -48,7 +48,7 @@ export function SupplierPage() {
   const [consentGranted, setConsentGranted] = useState(true);
   const [maId, setMaId] = useState("MA-DEMO-001");
   const [allowsAssignment, setAllowsAssignment] = useState(true);
-  const { entries: logEntries, info, error: logError, clear: clearLog } =
+  const { entries: logEntries, info, error: logError, clear: clearLog, logLedger } =
     useActivityLog("supplier-portal");
 
   const refresh = useCallback(async () => {
@@ -90,8 +90,7 @@ export function SupplierPage() {
         dueDate,
         consentGranted,
       });
-      info("Invoice proposed on-ledger", {
-        contractId: result.contractId,
+      logLedger("info", "Invoice proposed on-ledger", result, {
         faceValue,
         currency,
       });
@@ -114,11 +113,11 @@ export function SupplierPage() {
     setSuccess("");
     info("Registering consent policy", { masterAgreementId: maId, allowsAssignment });
     try {
-      await api.createConsentPolicy({
+      const result = await api.createConsentPolicy({
         masterAgreementId: maId,
         allowsAssignment,
       });
-      info("Consent policy registered on-ledger", { masterAgreementId: maId });
+      logLedger("info", "Consent policy registered on-ledger", result, { masterAgreementId: maId });
       setSuccess(`Standing consent policy registered for ${maId}.`);
       setMaId(`MA-DEMO-${String(policies.length + 1).padStart(3, "0")}`);
       setRegisterOpen(false);
@@ -136,8 +135,8 @@ export function SupplierPage() {
     setPostingId(contractId);
     info("Posting receivable for bid", { receivableId, contractId });
     try {
-      await api.postReceivableForBid(contractId);
-      info("Receivable posted for sealed-bid financing", { receivableId });
+      const result = await api.postReceivableForBid(contractId);
+      logLedger("info", "Receivable posted for sealed-bid financing", result, { receivableId });
       await refresh();
       setError("");
     } catch (err) {

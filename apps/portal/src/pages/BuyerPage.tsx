@@ -16,7 +16,7 @@ export function BuyerPage() {
   const [obligations, setObligations] = useState<BuyerObligation[]>([]);
   const [proposals, setProposals] = useState<ReceivableProposal[]>([]);
   const [error, setError] = useState("");
-  const { entries: logEntries, info, error: logError, debug, clear: clearLog } =
+  const { entries: logEntries, info, error: logError, debug, clear: clearLog, logLedger } =
     useActivityLog("buyer-portal");
 
   const refresh = useCallback(async () => {
@@ -51,8 +51,8 @@ export function BuyerPage() {
   async function cosign(contractId: string, proposalId: string) {
     info("Co-signing invoice proposal", { proposalId, contractId });
     try {
-      await api.cosignInvoice(contractId);
-      info("Invoice co-signed and issued on-ledger", { proposalId });
+      const result = await api.cosignInvoice(contractId);
+      logLedger("info", "Invoice co-signed and issued on-ledger", result, { proposalId });
       await refresh();
     } catch (err) {
       const message = String(err);
@@ -69,12 +69,12 @@ export function BuyerPage() {
       settlementRef,
     });
     try {
-      await api.repayObligation(o.contractId, {
+      const result = await api.repayObligation(o.contractId, {
         faceValue: o.faceValue,
         payeePartyId: o.payee,
         settlementRef,
       });
-      info("Repayment submitted on-ledger", {
+      logLedger("info", "Repayment submitted on-ledger", result, {
         receivableId: o.receivableId,
         settlementRef,
       });

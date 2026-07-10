@@ -1,4 +1,4 @@
-import type { ActivityLogEntry, ActivityLogLevel } from "@meridian/shared-types";
+import type { ActivityLogEntry, ActivityLogLevel, LedgerRef } from "@meridian/shared-types";
 
 const MAX_LOG_HISTORY = 400;
 
@@ -7,7 +7,11 @@ let logSeq = 0;
 export function createLogEntry(
   level: ActivityLogLevel,
   message: string,
-  options?: { source?: string; detail?: Record<string, unknown> }
+  options?: {
+    source?: string;
+    detail?: Record<string, unknown>;
+    transactions?: LedgerRef[];
+  }
 ): ActivityLogEntry {
   logSeq += 1;
   return {
@@ -17,6 +21,7 @@ export function createLogEntry(
     source: options?.source ?? "agent-runtime",
     message,
     detail: options?.detail,
+    transactions: options?.transactions,
   };
 }
 
@@ -33,7 +38,11 @@ export class ActivityLogBuffer {
   log(
     level: ActivityLogLevel,
     message: string,
-    options?: { source?: string; detail?: Record<string, unknown> }
+    options?: {
+      source?: string;
+      detail?: Record<string, unknown>;
+      transactions?: LedgerRef[];
+    }
   ): void {
     const entry = createLogEntry(level, message, options);
     this.append(entry);

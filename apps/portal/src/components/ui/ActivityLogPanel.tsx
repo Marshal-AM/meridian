@@ -1,10 +1,11 @@
 import { useEffect, useRef } from "react";
-import { Trash2 } from "lucide-react";
+import { ExternalLink, Trash2 } from "lucide-react";
 import type { ActivityLogEntry } from "@meridian/shared-types";
 import { Button } from "./Button";
 import { EmptyState } from "./Alert";
 import { cn } from "../../lib/utils";
 import { formatLogTimestamp } from "../../lib/activity-log";
+import { explorerUrl, truncateLedgerId } from "../../lib/canton-explorer";
 
 export interface ActivityLogPanelProps {
   entries: ActivityLogEntry[];
@@ -82,6 +83,26 @@ export function ActivityLogPanel({
                 </span>
                 <span className="activity-log__source">{entry.source}</span>
                 <span className="activity-log__message">{entry.message}</span>
+                {entry.transactions && entry.transactions.length > 0 ? (
+                  <div className="activity-log__ledger">
+                    {entry.transactions.map((ref) => (
+                      <a
+                        key={`${ref.kind}-${ref.id}`}
+                        href={explorerUrl(ref)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="activity-log__explorer-link"
+                        title={ref.id}
+                      >
+                        <ExternalLink className="size-3 shrink-0" aria-hidden />
+                        <span>
+                          {ref.label ?? (ref.kind === "transaction" ? "Update" : "Contract")}{" "}
+                          <span className="font-mono">{truncateLedgerId(ref.id)}</span>
+                        </span>
+                      </a>
+                    ))}
+                  </div>
+                ) : null}
                 {entry.detail && Object.keys(entry.detail).length > 0 ? (
                   <pre className="activity-log__detail">
                     {JSON.stringify(entry.detail, null, 2)}

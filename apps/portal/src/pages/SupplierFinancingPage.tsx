@@ -41,7 +41,7 @@ export function SupplierFinancingPage() {
   const [inviteB, setInviteB] = useState(true);
   const [awardMsg, setAwardMsg] = useState("");
   const [postingId, setPostingId] = useState<string | null>(null);
-  const { entries: logEntries, info, warn, error: logError, clear: clearLog } =
+  const { entries: logEntries, info, warn, error: logError, clear: clearLog, logLedger } =
     useActivityLog("supplier-financing");
 
   const refresh = useCallback(async () => {
@@ -93,8 +93,8 @@ export function SupplierFinancingPage() {
     setPostingId(contractId);
     info("Posting receivable for financing", { receivableId, contractId });
     try {
-      await api.postReceivableForBid(contractId);
-      info("Receivable posted for bid", { receivableId });
+      const result = await api.postReceivableForBid(contractId);
+      logLedger("info", "Receivable posted for bid", result, { receivableId });
       await refresh();
       setError("");
     } catch (err) {
@@ -124,14 +124,16 @@ export function SupplierFinancingPage() {
       pricingMax,
     });
     try {
-      await api.openFinancingRound({
+      const result = await api.openFinancingRound({
         receivableCid: selectedReceivable,
         financiers,
         deadline: new Date(deadline).toISOString(),
         pricingBandMin: pricingMin,
         pricingBandMax: pricingMax,
       });
-      info("Financing round opened on-ledger", { receivableCid: selectedReceivable });
+      logLedger("info", "Financing round opened on-ledger", result, {
+        receivableCid: selectedReceivable,
+      });
       await refresh();
     } catch (err) {
       const message = String(err);
@@ -149,8 +151,11 @@ export function SupplierFinancingPage() {
     try {
       setAwardMsg("");
       info("Awarding financing bid", { requestId, bidContractId, advanceAmount });
-      await api.awardFinancingBid(requestId, bidContractId, advanceAmount, financierPartyId);
-      info("Bid awarded with atomic DvP settlement", { requestId, advanceAmount });
+      const result = await api.awardFinancingBid(requestId, bidContractId, advanceAmount, financierPartyId);
+      logLedger("info", "Bid awarded with atomic DvP settlement", result, {
+        requestId,
+        advanceAmount,
+      });
       setAwardMsg(
         `Award confirmed with atomic DvP — MUSD advance (${advanceAmount}) settled to supplier.`
       );
@@ -165,8 +170,8 @@ export function SupplierFinancingPage() {
   async function handlePause(requestId: string) {
     info("Pausing financing round", { requestId });
     try {
-      await api.pauseFinancingRound(requestId);
-      warn("Financing round paused", { requestId });
+      const result = await api.pauseFinancingRound(requestId);
+      logLedger("warn", "Financing round paused", result, { requestId });
       await refresh();
     } catch (err) {
       const message = String(err);
@@ -178,8 +183,8 @@ export function SupplierFinancingPage() {
   async function handleStaticFallback(requestId: string) {
     info("Switching round to static reference fallback", { requestId });
     try {
-      await api.staticFallbackFinancingRound(requestId);
-      info("Round moved to static reference fallback", { requestId });
+      const result = await api.staticFallbackFinancingRound(requestId);
+      logLedger("info", "Round moved to static reference fallback", result, { requestId });
       await refresh();
     } catch (err) {
       const message = String(err);
@@ -191,8 +196,8 @@ export function SupplierFinancingPage() {
   async function handleExpire(requestId: string) {
     info("Expiring financing round", { requestId });
     try {
-      await api.expireFinancingRound(requestId);
-      warn("Financing round expired", { requestId });
+      const result = await api.expireFinancingRound(requestId);
+      logLedger("warn", "Financing round expired", result, { requestId });
       await refresh();
     } catch (err) {
       const message = String(err);

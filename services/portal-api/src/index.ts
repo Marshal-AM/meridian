@@ -779,6 +779,7 @@ async function handleRequest(
 
       json(res, 201, {
         contractId: extractCreatedContractId(result),
+        transaction: result.transaction?.updateId,
       });
       return;
     }
