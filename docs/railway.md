@@ -46,7 +46,7 @@ Railway charges per service resource usage. Thirteen tiny Node processes each as
 
 ### 2. Attach a volume (important)
 
-Indexers, KYB, and party-provisioner use SQLite under `/data`.
+Indexers, KYB, and party-provisioner use SQLite under `/data`. Railway does **not** allow `VOLUME` in the Dockerfile — attach storage here instead:
 
 1. Service → **Volumes** → **Add Volume**
 2. Mount path: `/data`

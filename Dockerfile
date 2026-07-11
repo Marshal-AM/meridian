@@ -54,7 +54,6 @@ COPY docker ./docker
 RUN chmod +x /app/docker/entrypoint.sh /app/docker/run-agent-runtime.sh \
   && rm -f /etc/nginx/sites-enabled/default
 
-VOLUME ["/data"]
 EXPOSE 8080
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=120s --retries=3 \
