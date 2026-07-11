@@ -1,4 +1,5 @@
 import { Button } from "./Button";
+import { LoadingSpinner } from "./LoadingSpinner";
 
 interface StepFormNavProps {
   onBack?: () => void;
@@ -39,8 +40,9 @@ export function StepFormNav({
           type="button"
           onClick={onNext}
           disabled={nextDisabled || busy}
-          className="w-full sm:ml-auto sm:w-auto"
+          className="w-full gap-2 sm:ml-auto sm:w-auto"
         >
+          {busy ? <LoadingSpinner className="size-3.5" /> : null}
           {busy ? "Please wait…" : isLastStep ? nextLabel || "Submit" : nextLabel}
         </Button>
       ) : null}

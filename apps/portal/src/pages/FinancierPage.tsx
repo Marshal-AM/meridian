@@ -11,9 +11,13 @@ import {
 } from "../api";
 import { usePageTab } from "../hooks/usePageTab";
 import { useActivityLog } from "../hooks/useActivityLog";
+import { useFollowUpRefresh } from "../hooks/useFollowUpRefresh";
+import { usePageFeedback } from "../hooks/usePageFeedback";
 import { Alert, EmptyState, PageHeader } from "../components/ui/Alert";
 import { Badge } from "../components/ui/Badge";
 import { Button } from "../components/ui/Button";
+import { LoadingSpinner } from "../components/ui/LoadingSpinner";
+import { PageFeedback } from "../components/ui/PageFeedback";
 import { Card, Surface } from "../components/ui/Surface";
 import { DataTable } from "../components/ui/DataTable";
 import { Checkbox, Field, FieldGroup, FieldLabel } from "../components/ui/Field";
@@ -21,7 +25,7 @@ import { Input } from "../components/ui/Input";
 import { PageTabBar } from "../components/ui/PageTabBar";
 import { CollapsibleSection } from "../components/ui/CollapsibleSection";
 import { ActivityLogPanel } from "../components/ui/ActivityLogPanel";
-import { cn, truncateParty } from "../lib/utils";
+import { cn, formatIdTimestamp, sortByIdTimeDesc, sortByLedgerTimeDesc, truncateParty } from "../lib/utils";
 
 function canSubmitBid(inv: FinancierInvitation) {
   return inv.roundState === "RoundOpen" || inv.roundState === "StaticReferenceFallback";
@@ -42,13 +46,17 @@ function categorizeInvitations(invitations: FinancierInvitation[]) {
     }
   }
 
-  return { open, pending, awarded };
+  return {
+    open: sortByIdTimeDesc(open, (i) => i.requestId),
+    pending: sortByIdTimeDesc(pending, (i) => i.requestId),
+    awarded: sortByIdTimeDesc(awarded, (i) => i.requestId),
+  };
 }
 
 interface InvitationCardProps {
   inv: FinancierInvitation;
   myBids: BidSummary[];
-  bidSubmitting: boolean;
+  bidSubmittingId: string | null;
   advanceByRound: Record<string, string>;
   discountByRound: Record<string, string>;
   onAdvanceChange: (contractId: string, value: string) => void;
@@ -59,7 +67,7 @@ interface InvitationCardProps {
 function InvitationCard({
   inv,
   myBids,
-  bidSubmitting,
+  bidSubmittingId,
   advanceByRound,
   discountByRound,
   onAdvanceChange,
@@ -85,6 +93,9 @@ function InvitationCard({
         </p>
         <p className="text-sm text-muted-foreground">
           Credit profile: {inv.creditProfileStub}
+        </p>
+        <p className="text-xs text-muted-foreground">
+          Opened {formatIdTimestamp(inv.requestId)}
         </p>
 
         {biddable ? (
@@ -116,9 +127,17 @@ function InvitationCard({
                   />
                 </Field>
               </div>
-              <Button type="submit" disabled={bidSubmitting} className="w-full">
-                <Gavel className="size-4" />
-                {bidSubmitting
+              <Button
+                type="submit"
+                disabled={bidSubmittingId === inv.contractId}
+                className="w-full gap-2"
+              >
+                {bidSubmittingId === inv.contractId ? (
+                  <LoadingSpinner className="size-4" />
+                ) : (
+                  <Gavel className="size-4" />
+                )}
+                {bidSubmittingId === inv.contractId
                   ? "Submitting…"
                   : myBids.some((b) => b.requestId === inv.requestId)
                     ? inv.roundState === "StaticReferenceFallback"
@@ -139,7 +158,7 @@ function InvitationCard({
 interface InvitationSectionGridProps {
   invitations: FinancierInvitation[];
   myBids: BidSummary[];
-  bidSubmitting: boolean;
+  bidSubmittingId: string | null;
   advanceByRound: Record<string, string>;
   discountByRound: Record<string, string>;
   onAdvanceChange: (contractId: string, value: string) => void;
@@ -150,7 +169,7 @@ interface InvitationSectionGridProps {
 function InvitationSectionGrid({
   invitations,
   myBids,
-  bidSubmitting,
+  bidSubmittingId,
   advanceByRound,
   discountByRound,
   onAdvanceChange,
@@ -168,7 +187,7 @@ function InvitationSectionGrid({
           key={inv.contractId}
           inv={inv}
           myBids={myBids}
-          bidSubmitting={bidSubmitting}
+          bidSubmittingId={bidSubmittingId}
           advanceByRound={advanceByRound}
           discountByRound={discountByRound}
           onAdvanceChange={onAdvanceChange}
@@ -203,11 +222,13 @@ export function FinancierPage() {
   const [positions, setPositions] = useState<
     Array<{ receivableId: string; state: string; faceValue: string }>
   >([]);
-  const [error, setError] = useState("");
+  const { success, setSuccess, error, setError } = usePageFeedback();
   const [agentTicking, setAgentTicking] = useState(false);
+  const [creatingMandate, setCreatingMandate] = useState(false);
+  const [togglingMandateId, setTogglingMandateId] = useState<string | null>(null);
   const [advanceByRound, setAdvanceByRound] = useState<Record<string, string>>({});
   const [discountByRound, setDiscountByRound] = useState<Record<string, string>>({});
-  const [bidSubmitting, setBidSubmitting] = useState(false);
+  const [bidSubmittingId, setBidSubmittingId] = useState<string | null>(null);
   const {
     entries: agentLogEntries,
     info: agentInfo,
@@ -286,9 +307,12 @@ export function FinancierPage() {
     }
   }, [appendAgentLogs]);
 
+  const followUpRefresh = useFollowUpRefresh(refresh);
+
   const onLedgerNotify = useCallback(() => {
     dealFlowInfo("Ledger notification received — refreshing deal flow");
-  }, [dealFlowInfo]);
+    void followUpRefresh();
+  }, [dealFlowInfo, followUpRefresh]);
 
   useNotifications("meridian-financier-a", refresh, { onNotify: onLedgerNotify });
   useEffect(() => {
@@ -303,7 +327,8 @@ export function FinancierPage() {
     const advanceAmount = advanceByRound[requestContractId] ?? "1000";
     const discountRate = discountByRound[requestContractId] ?? "0.05";
     const hasBid = myBids.some((b) => b.requestId === requestId);
-    setBidSubmitting(true);
+    setBidSubmittingId(requestContractId);
+    setError("");
     dealFlowInfo(hasBid ? "Replacing manual bid" : "Submitting manual bid", {
       requestId,
       advanceAmount,
@@ -326,6 +351,8 @@ export function FinancierPage() {
           advanceAmount,
           discountRate,
         });
+        setSuccess(`Bid submitted for ${requestId} (stale oracle) — syncing My Bids…`);
+        setDealFlowView("bids");
       } else {
         setError("");
         dealFlowLogLedger("info", "Manual bid submitted on-ledger", result, {
@@ -334,19 +361,23 @@ export function FinancierPage() {
           discountRate,
           mode: useStaticReference ? "StaticReference" : "OracleAnchored",
         });
+        setSuccess(`Bid submitted for ${requestId} — syncing My Bids…`);
+        setDealFlowView("bids");
       }
-      await refresh();
+      await followUpRefresh();
     } catch (err) {
       const message = String(err);
       setError(message);
       dealFlowLogError("Manual bid failed", { requestId, error: message });
     } finally {
-      setBidSubmitting(false);
+      setBidSubmittingId(null);
     }
   }
 
   async function handleCreateMandate(e: React.FormEvent) {
     e.preventDefault();
+    setCreatingMandate(true);
+    setError("");
     try {
       const result = await api.createFinancierMandate({
         mandateId: mandateForm.mandateId,
@@ -361,10 +392,13 @@ export function FinancierPage() {
       dealFlowLogLedger("info", "Bidding mandate created on-ledger", result, {
         mandateId: mandateForm.mandateId,
       });
+      setSuccess(`Mandate ${mandateForm.mandateId} created on-ledger`);
       setMandateForm((f) => ({ ...f, mandateId: `mandate-${Date.now()}` }));
-      await refresh();
+      await followUpRefresh();
     } catch (err) {
       setError(String(err));
+    } finally {
+      setCreatingMandate(false);
     }
   }
 
@@ -388,13 +422,18 @@ export function FinancierPage() {
         agentInfo(`Tick finished — ${submitted.length}/${status.decisions.length} bids submitted`, {
           durationMs: status.lastTickDurationMs,
         });
+        setSuccess(
+          `Agent submitted ${submitted.length} bid(s) — syncing My Bids…`
+        );
+        setTab("deal-flow");
+        setDealFlowView("bids");
       } else {
         agentWarn(`Tick finished — no bids submitted (${status.decisions.length} evaluated)`, {
           durationMs: status.lastTickDurationMs,
           lastError: status.lastError,
         });
       }
-      await refresh();
+      await followUpRefresh();
     } catch (err) {
       agentLogError("Agent tick failed", { error: String(err) });
       setError(String(err));
@@ -404,6 +443,8 @@ export function FinancierPage() {
   }
 
   async function toggleAgentEnabled(mandate: BiddingMandateSummary) {
+    setTogglingMandateId(mandate.contractId);
+    setError("");
     try {
       const result = await api.updateFinancierMandate(mandate.contractId, {
         action: "setAgentEnabled",
@@ -412,19 +453,28 @@ export function FinancierPage() {
       dealFlowLogLedger("info", `Mandate agent ${mandate.agentEnabled ? "disabled" : "enabled"} on-ledger`, result, {
         mandateId: mandate.mandateId,
       });
-      await refresh();
+      setSuccess(
+        `Agent ${mandate.agentEnabled ? "disabled" : "enabled"} for mandate ${mandate.mandateId}`
+      );
+      await followUpRefresh();
     } catch (err) {
       setError(String(err));
+    } finally {
+      setTogglingMandateId(null);
     }
   }
 
   const activeMandate = mandates.find((m) => m.agentEnabled && !m.revoked);
   const agentOnline = isAgentRuntimeOnline(agentStatus);
   const invitationGroups = useMemo(() => categorizeInvitations(invitations), [invitations]);
+  const sortedMyBids = useMemo(
+    () => sortByLedgerTimeDesc(myBids, (b) => b.ledgerTime),
+    [myBids]
+  );
 
   const invitationGridProps = {
     myBids,
-    bidSubmitting,
+    bidSubmittingId,
     advanceByRound,
     discountByRound,
     onAdvanceChange: (contractId: string, value: string) =>
@@ -443,7 +493,7 @@ export function FinancierPage() {
         description="Sealed-bid deal flow — invitations visible only to invited financiers."
       />
 
-      {error && <Alert variant="destructive">{error}</Alert>}
+      <PageFeedback success={success} error={error} />
 
       <PageTabBar
         tabs={[
@@ -501,10 +551,11 @@ export function FinancierPage() {
           <div className="flex flex-wrap items-center gap-3">
             <Button
               type="button"
+              className="gap-2"
               onClick={handleAgentTick}
               disabled={agentTicking || !agentOnline || !activeMandate}
             >
-              <Bot className="size-4" />
+              {agentTicking ? <LoadingSpinner className="size-4" /> : <Bot className="size-4" />}
               {agentTicking ? "Running agent tick…" : "Trigger agent tick"}
             </Button>
             {!agentOnline && (
@@ -640,9 +691,9 @@ export function FinancierPage() {
                 />
                 Enable agent
               </label>
-              <Button type="submit">
-                <Plus className="size-4" />
-                Create mandate on-ledger
+              <Button type="submit" disabled={creatingMandate} className="gap-2">
+                {creatingMandate ? <LoadingSpinner className="size-4" /> : <Plus className="size-4" />}
+                {creatingMandate ? "Creating…" : "Create mandate on-ledger"}
               </Button>
             </FieldGroup>
           </form>
@@ -690,9 +741,18 @@ export function FinancierPage() {
                       type="button"
                       variant="outline"
                       size="sm"
+                      className="gap-1.5"
+                      disabled={togglingMandateId === m.contractId}
                       onClick={() => toggleAgentEnabled(m)}
                     >
-                      {m.agentEnabled ? "Disable agent" : "Enable agent"}
+                      {togglingMandateId === m.contractId ? (
+                        <LoadingSpinner className="size-3.5" />
+                      ) : null}
+                      {togglingMandateId === m.contractId
+                        ? "Updating…"
+                        : m.agentEnabled
+                          ? "Disable agent"
+                          : "Enable agent"}
                     </Button>
                   ) : null,
               },
@@ -774,11 +834,11 @@ export function FinancierPage() {
 
         {dealFlowView === "bids" && (
           <div>
-            {myBids.length === 0 ? (
+            {sortedMyBids.length === 0 ? (
               <EmptyState>No active bids.</EmptyState>
             ) : (
               <DataTable
-                data={myBids}
+                data={sortedMyBids}
                 rowKey={(bid) => bid.contractId}
                 emptyMessage="No active bids."
                 detailTitle={(bid) => bid.requestId}

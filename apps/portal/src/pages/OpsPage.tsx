@@ -17,10 +17,13 @@ import type {
 } from "@meridian/shared-types";
 import { api } from "../api";
 import { usePageTab } from "../hooks/usePageTab";
+import { usePageFeedback } from "../hooks/usePageFeedback";
 import { useActivityLog } from "../hooks/useActivityLog";
 import { Alert, EmptyState, InlineCode, PageHeader } from "../components/ui/Alert";
 import { Badge } from "../components/ui/Badge";
 import { Button } from "../components/ui/Button";
+import { LoadingSpinner } from "../components/ui/LoadingSpinner";
+import { PageFeedback } from "../components/ui/PageFeedback";
 import { ActivityLogPanel } from "../components/ui/ActivityLogPanel";
 import { DataTable } from "../components/ui/DataTable";
 import { Dialog } from "../components/ui/Dialog";
@@ -28,7 +31,7 @@ import { Card, Surface } from "../components/ui/Surface";
 import { Field, FieldDescription, FieldGroup, FieldLabel } from "../components/ui/Field";
 import { Input } from "../components/ui/Input";
 import { PageTabBar } from "../components/ui/PageTabBar";
-import { cn } from "../lib/utils";
+import { cn, formatApiError } from "../lib/utils";
 
 function SettlementFinalityPanel({
   settlement,
@@ -215,6 +218,8 @@ export function OpsPage() {
   const [oracleError, setOracleError] = useState("");
   const [regulatorError, setRegulatorError] = useState("");
   const [actionError, setActionError] = useState("");
+  const { success: actionSuccess, setSuccess: setActionSuccess } = usePageFeedback();
+  const [refreshing, setRefreshing] = useState(false);
   const [grantDialogOpen, setGrantDialogOpen] = useState(false);
   const [grantForm, setGrantForm] = useState({
     grantId: `grant-${Date.now()}`,
@@ -233,6 +238,11 @@ export function OpsPage() {
   const [kybVerificationId, setKybVerificationId] = useState("");
   const [submittingGrant, setSubmittingGrant] = useState(false);
   const [submittingObserver, setSubmittingObserver] = useState(false);
+  const [revokingGrantId, setRevokingGrantId] = useState<string | null>(null);
+  const [submittingKybVerify, setSubmittingKybVerify] = useState(false);
+  const [submittingKybDecision, setSubmittingKybDecision] = useState<
+    "APPROVED" | "REJECTED" | null
+  >(null);
 
   const {
     entries: monitorLogEntries,
@@ -274,10 +284,7 @@ export function OpsPage() {
       });
     } else {
       setSettlement(null);
-      const message =
-        settleResult.reason instanceof Error
-          ? settleResult.reason.message
-          : String(settleResult.reason);
+      const message = formatApiError(settleResult.reason);
       setSettlementError(message);
       monitorError("Settlement finality fetch failed", { error: message });
     }
@@ -299,10 +306,7 @@ export function OpsPage() {
       }
     } else {
       setOracle(null);
-      const message =
-        oracleResult.reason instanceof Error
-          ? oracleResult.reason.message
-          : String(oracleResult.reason);
+      const message = formatApiError(oracleResult.reason);
       setOracleError(message);
       monitorError("Oracle health fetch failed", { error: message });
     }
@@ -327,7 +331,7 @@ export function OpsPage() {
         rollups: exposureRes.rollups?.length ?? 0,
       });
     } catch (e) {
-      const message = e instanceof Error ? e.message : String(e);
+      const message = formatApiError(e);
       setRegulatorError(message);
       regulatorLogError("Regulator refresh failed", { error: message });
     } finally {
@@ -336,7 +340,12 @@ export function OpsPage() {
   }, [regulatorInfo, regulatorLogError]);
 
   const refreshAll = useCallback(async () => {
-    await Promise.all([refreshMonitors(), refreshRegulator()]);
+    setRefreshing(true);
+    try {
+      await Promise.all([refreshMonitors(), refreshRegulator()]);
+    } finally {
+      setRefreshing(false);
+    }
   }, [refreshMonitors, refreshRegulator]);
 
   useEffect(() => {
@@ -362,9 +371,10 @@ export function OpsPage() {
       });
       setGrantForm((f) => ({ ...f, grantId: `grant-${Date.now()}` }));
       setGrantDialogOpen(false);
+      setActionSuccess(`Jurisdiction grant ${grantForm.grantId} created for ${grantForm.jurisdiction}`);
       await refreshRegulator();
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      const message = formatApiError(err);
       setActionError(message);
       regulatorLogError("Grant creation failed", { error: message });
     } finally {
@@ -375,14 +385,18 @@ export function OpsPage() {
   async function handleRevokeGrant(contractId: string, grantId: string) {
     regulatorInfo("Revoking jurisdiction grant", { grantId, contractId });
     setActionError("");
+    setRevokingGrantId(contractId);
     try {
       const result = await api.revokeOpsRegulatorGrant(contractId);
       regulatorLogLedger("info", "Jurisdiction grant revoked", result, { grantId });
+      setActionSuccess(`Jurisdiction grant ${grantId} revoked`);
       await refreshRegulator();
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      const message = formatApiError(err);
       setActionError(message);
       regulatorLogError("Grant revocation failed", { grantId, error: message });
+    } finally {
+      setRevokingGrantId(null);
     }
   }
 
@@ -405,9 +419,12 @@ export function OpsPage() {
         jurisdiction: observerForm.jurisdiction,
       });
       setObserverForm((f) => ({ ...f, receivableContractId: "" }));
+      setActionSuccess(
+        `Observer rights granted on receivable ${observerForm.receivableContractId.trim()}`
+      );
       await refreshRegulator();
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      const message = formatApiError(err);
       setActionError(message);
       regulatorLogError("Observer grant failed", { error: message });
     } finally {
@@ -418,6 +435,7 @@ export function OpsPage() {
   async function handleKybVerify(e: React.FormEvent) {
     e.preventDefault();
     setActionError("");
+    setSubmittingKybVerify(true);
     kybInfo("Starting KYB verification", {
       legalEntityId: kybForm.legalEntityId,
       jurisdiction: kybForm.jurisdiction,
@@ -430,17 +448,21 @@ export function OpsPage() {
         requestedRoles: [kybForm.role],
       });
       setKybVerificationId(res.verificationId);
+      setActionSuccess(`KYB verification started — ID ${res.verificationId}`);
       kybInfo("KYB verification started", { verificationId: res.verificationId });
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      const message = formatApiError(err);
       setActionError(message);
       kybLogError("KYB verification start failed", { error: message });
+    } finally {
+      setSubmittingKybVerify(false);
     }
   }
 
   async function handleKybComplete(decision: "APPROVED" | "REJECTED") {
     if (!kybVerificationId) return;
     setActionError("");
+    setSubmittingKybDecision(decision);
     kybInfo(`Completing KYB verification — ${decision}`, { verificationId: kybVerificationId });
     try {
       await api.completeKyb(kybVerificationId, decision);
@@ -463,12 +485,21 @@ export function OpsPage() {
         verificationId: kybVerificationId,
       });
       if (decision === "APPROVED") {
+        setActionSuccess(
+          kybForm.partyHint
+            ? `KYB approved — party ${kybForm.partyHint} allocated on topology`
+            : `KYB verification ${kybVerificationId} approved`
+        );
         setKybVerificationId("");
+      } else {
+        setActionSuccess(`KYB verification ${kybVerificationId} rejected`);
       }
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      const message = formatApiError(err);
       setActionError(message);
       kybLogError("KYB completion failed", { verificationId: kybVerificationId, error: message });
+    } finally {
+      setSubmittingKybDecision(null);
     }
   }
 
@@ -480,13 +511,21 @@ export function OpsPage() {
         title="Ops & Compliance Console"
         description="Platform-operator view: monitor settlement paths and oracle health, administer scoped regulator visibility, and gate new parties through KYB before topology allocation."
       >
-        <Button type="button" variant="outline" size="sm" onClick={() => void refreshAll()}>
-          <RefreshCw className="size-3.5" />
-          Refresh
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="gap-1.5"
+          disabled={refreshing}
+          onClick={() => void refreshAll()}
+        >
+          {refreshing ? <LoadingSpinner className="size-3.5" /> : <RefreshCw className="size-3.5" />}
+          {refreshing ? "Refreshing…" : "Refresh"}
         </Button>
       </PageHeader>
 
       {actionError && <Alert variant="destructive">{actionError}</Alert>}
+      <PageFeedback success={actionSuccess} />
 
       <PageTabBar
         tabs={[
@@ -653,9 +692,14 @@ export function OpsPage() {
                           type="button"
                           variant="destructive"
                           size="sm"
+                          className="gap-1.5"
+                          disabled={revokingGrantId === g.contractId}
                           onClick={() => void handleRevokeGrant(g.contractId, g.grantId)}
                         >
-                          Revoke
+                          {revokingGrantId === g.contractId ? (
+                            <LoadingSpinner className="size-3.5" />
+                          ) : null}
+                          {revokingGrantId === g.contractId ? "Revoking…" : "Revoke"}
                         </Button>
                       ) : null,
                   },
@@ -706,8 +750,12 @@ export function OpsPage() {
                   </Field>
                 </div>
                 <div>
-                  <Button type="submit" size="sm" disabled={submittingObserver}>
-                    <Eye className="size-4" />
+                  <Button type="submit" size="sm" disabled={submittingObserver} className="gap-2">
+                    {submittingObserver ? (
+                      <LoadingSpinner className="size-4" />
+                    ) : (
+                      <Eye className="size-4" />
+                    )}
                     {submittingObserver ? "Granting…" : "Grant observer on receivable"}
                   </Button>
                 </div>
@@ -825,8 +873,9 @@ export function OpsPage() {
                     />
                   </Field>
                 </div>
-                <Button type="submit" size="sm">
-                  Start KYB verification
+                <Button type="submit" size="sm" disabled={submittingKybVerify} className="gap-2">
+                  {submittingKybVerify ? <LoadingSpinner className="size-4" /> : null}
+                  {submittingKybVerify ? "Starting…" : "Start KYB verification"}
                 </Button>
               </FieldGroup>
             </form>
@@ -846,17 +895,27 @@ export function OpsPage() {
                   type="button"
                   size="sm"
                   variant="success"
-                  onClick={() => handleKybComplete("APPROVED")}
+                  className="gap-1.5"
+                  disabled={submittingKybDecision !== null}
+                  onClick={() => void handleKybComplete("APPROVED")}
                 >
-                  Approve &amp; allocate
+                  {submittingKybDecision === "APPROVED" ? (
+                    <LoadingSpinner className="size-3.5" />
+                  ) : null}
+                  {submittingKybDecision === "APPROVED" ? "Approving…" : "Approve & allocate"}
                 </Button>
                 <Button
                   type="button"
                   size="sm"
                   variant="destructive"
-                  onClick={() => handleKybComplete("REJECTED")}
+                  className="gap-1.5"
+                  disabled={submittingKybDecision !== null}
+                  onClick={() => void handleKybComplete("REJECTED")}
                 >
-                  Reject
+                  {submittingKybDecision === "REJECTED" ? (
+                    <LoadingSpinner className="size-3.5" />
+                  ) : null}
+                  {submittingKybDecision === "REJECTED" ? "Rejecting…" : "Reject"}
                 </Button>
               </div>
             </Surface>
@@ -909,8 +968,8 @@ export function OpsPage() {
               >
                 Cancel
               </Button>
-              <Button type="submit" size="sm" disabled={submittingGrant}>
-                <Plus className="size-4" />
+              <Button type="submit" size="sm" disabled={submittingGrant} className="gap-2">
+                {submittingGrant ? <LoadingSpinner className="size-4" /> : <Plus className="size-4" />}
                 {submittingGrant ? "Creating…" : "Create on ledger"}
               </Button>
             </div>

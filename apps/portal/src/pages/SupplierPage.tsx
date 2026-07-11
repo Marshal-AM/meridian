@@ -2,10 +2,14 @@ import { useCallback, useEffect, useState } from "react";
 import { FileText, Plus, Scale, ShieldCheck } from "lucide-react";
 import { api, useNotifications, type SupplierReceivable } from "../api";
 import { usePageTab } from "../hooks/usePageTab";
+import { useFollowUpRefresh } from "../hooks/useFollowUpRefresh";
+import { usePageFeedback } from "../hooks/usePageFeedback";
 import { useActivityLog } from "../hooks/useActivityLog";
-import { Alert, EmptyState, PageHeader } from "../components/ui/Alert";
+import { EmptyState, PageHeader } from "../components/ui/Alert";
 import { Badge } from "../components/ui/Badge";
 import { Button } from "../components/ui/Button";
+import { LoadingSpinner } from "../components/ui/LoadingSpinner";
+import { PageFeedback } from "../components/ui/PageFeedback";
 import { IssueInvoiceStepForm } from "../components/IssueInvoiceStepForm";
 import { Dialog } from "../components/ui/Dialog";
 import { Card, Surface } from "../components/ui/Surface";
@@ -35,8 +39,7 @@ export function SupplierPage() {
     Array<{ receivableId: string; amount: string; settlementRef: string }>
   >([]);
   const [policies, setPolicies] = useState<ConsentPolicy[]>([]);
-  const [error, setError] = useState("");
-  const [success, setSuccess] = useState("");
+  const { success, setSuccess, error, setError } = usePageFeedback();
   const [proposing, setProposing] = useState(false);
   const [creatingPolicy, setCreatingPolicy] = useState(false);
   const [registerOpen, setRegisterOpen] = useState(false);
@@ -69,6 +72,8 @@ export function SupplierPage() {
     }
   }, [logError]);
 
+  const followUpRefresh = useFollowUpRefresh(refresh);
+
   const onLedgerNotify = useCallback(() => {
     info("Ledger notification received — refreshing supplier view");
   }, [info]);
@@ -96,7 +101,7 @@ export function SupplierPage() {
       });
       setSuccess(`Proposal created — contract ${result.contractId.slice(0, 24)}…`);
       setInvoiceFormToken((t) => t + 1);
-      await refresh();
+      await followUpRefresh();
     } catch (err) {
       const message = String(err);
       setError(message);
@@ -121,7 +126,7 @@ export function SupplierPage() {
       setSuccess(`Standing consent policy registered for ${maId}.`);
       setMaId(`MA-DEMO-${String(policies.length + 1).padStart(3, "0")}`);
       setRegisterOpen(false);
-      await refresh();
+      await followUpRefresh();
     } catch (err) {
       const message = String(err);
       setError(message);
@@ -133,12 +138,13 @@ export function SupplierPage() {
 
   async function handlePostForBid(contractId: string, receivableId: string) {
     setPostingId(contractId);
+    setError("");
     info("Posting receivable for bid", { receivableId, contractId });
     try {
       const result = await api.postReceivableForBid(contractId);
       logLedger("info", "Receivable posted for sealed-bid financing", result, { receivableId });
-      await refresh();
-      setError("");
+      setSuccess(`${receivableId} posted for sealed-bid financing`);
+      await followUpRefresh();
     } catch (err) {
       const message = String(err);
       setError(message);
@@ -157,8 +163,7 @@ export function SupplierPage() {
         description="Issue invoices, manage assignment consent, and post receivables for sealed-bid financing."
       />
 
-      {error && <Alert variant="destructive">{error}</Alert>}
-      {success && <Alert variant="success">{success}</Alert>}
+      <PageFeedback success={success} error={error} />
 
       <PageTabBar
         tabs={[
@@ -214,9 +219,13 @@ export function SupplierPage() {
                       <Button
                         type="button"
                         size="sm"
+                        className="gap-1.5"
                         onClick={() => handlePostForBid(r.contractId, r.receivableId)}
                         disabled={postingId === r.contractId}
                       >
+                        {postingId === r.contractId ? (
+                          <LoadingSpinner className="size-3.5" />
+                        ) : null}
                         {postingId === r.contractId ? "Posting…" : "Post for bid"}
                       </Button>
                     )}
@@ -359,8 +368,8 @@ export function SupplierPage() {
                   >
                     Cancel
                   </Button>
-                  <Button type="submit" disabled={creatingPolicy}>
-                    <Plus className="size-4" />
+                  <Button type="submit" disabled={creatingPolicy} className="gap-2">
+                    {creatingPolicy ? <LoadingSpinner className="size-4" /> : <Plus className="size-4" />}
                     {creatingPolicy ? "Registering…" : "Register on ledger"}
                   </Button>
                 </div>

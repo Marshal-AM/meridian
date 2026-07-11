@@ -191,6 +191,8 @@ export interface ReceivableProposalSummary {
   faceValue: string;
   currency: string;
   dueDate: string;
+  /** Ledger record time when the proposal was first indexed. */
+  createdAt?: string;
 }
 
 /** Financing round lifecycle state (§8.2). */

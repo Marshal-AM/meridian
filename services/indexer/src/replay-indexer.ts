@@ -210,7 +210,7 @@ export class ReplayIndexer {
         recordTime: u.recordTime,
         payload: u.events,
       });
-      this.processTransactionEvents(u.events, u.offset);
+      this.processTransactionEvents(u.events, u.offset, u.recordTime);
     }
 
     await this.reconcileActiveContracts();
@@ -264,13 +264,14 @@ export class ReplayIndexer {
     return this.store.projections;
   }
 
-  private processTransactionEvents(events: unknown[], offset: string): void {
+  private processTransactionEvents(events: unknown[], offset: string, recordTime?: string): void {
     for (const created of extractCreatedEvents(events)) {
       this.projectContractCreate(
         created.templateId,
         created.contractId,
         created.payload,
-        offset
+        offset,
+        recordTime
       );
     }
     const archived = extractArchivedContractIds(events);
@@ -291,7 +292,8 @@ export class ReplayIndexer {
     templateId: string,
     contractId: string,
     payload: Record<string, unknown>,
-    offset: string
+    offset: string,
+    recordTime?: string
   ): void {
     const party = this.config.actingParty;
 
@@ -349,7 +351,7 @@ export class ReplayIndexer {
 
     if (isReceivableProposalTemplate(templateId)) {
       const proposal = projectProposal(contractId, payload);
-      this.store.projections.upsertProposal(proposal, offset);
+      this.store.projections.upsertProposal(proposal, offset, recordTime);
     }
 
     if (isConsentPolicyTemplate(templateId)) {

@@ -118,6 +118,7 @@ export interface ReceivableProposal {
   faceValue: string;
   currency: string;
   dueDate: string;
+  createdAt?: string;
 }
 
 export interface SupplierReceivable {

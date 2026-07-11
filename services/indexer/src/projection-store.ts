@@ -153,7 +153,20 @@ export class ProjectionStore {
     for (const id of contractIds) stmt.run(id);
   }
 
-  upsertProposal(proposal: ReceivableProposalSummary, offset: string): void {
+  upsertProposal(proposal: ReceivableProposalSummary, offset: string, recordTime?: string): void {
+    const existing = this.db
+      .prepare(`SELECT proposal_json FROM receivable_proposals WHERE contract_id = ?`)
+      .get(proposal.contractId) as { proposal_json: string } | undefined;
+
+    const createdAt =
+      (existing
+        ? (JSON.parse(existing.proposal_json) as ReceivableProposalSummary).createdAt
+        : undefined) ?? recordTime;
+
+    const stored: ReceivableProposalSummary = createdAt
+      ? { ...proposal, createdAt }
+      : proposal;
+
     this.db
       .prepare(
         `INSERT INTO receivable_proposals (contract_id, proposal_json, offset, archived)
@@ -163,7 +176,7 @@ export class ProjectionStore {
            offset = excluded.offset,
            archived = 0`
       )
-      .run(proposal.contractId, JSON.stringify(proposal), offset);
+      .run(stored.contractId, JSON.stringify(stored), offset);
   }
 
   archiveProposals(contractIds: string[]): void {
@@ -191,7 +204,8 @@ export class ProjectionStore {
     const rows = this.db
       .prepare(
         `SELECT view_json FROM interface_projections
-         WHERE interface_name = 'IBuyerView' AND archived = 0`
+         WHERE interface_name = 'IBuyerView' AND archived = 0
+         ORDER BY CAST(offset AS INTEGER) DESC`
       )
       .all() as Array<{ view_json: string }>;
     return rows.map((r) => JSON.parse(r.view_json) as BuyerReceivableView);
@@ -209,8 +223,12 @@ export class ProjectionStore {
 
   getPendingProposals(): ReceivableProposalSummary[] {
     const rows = this.db
-      .prepare(`SELECT proposal_json FROM receivable_proposals WHERE archived = 0`)
-      .all() as Array<{ proposal_json: string }>;
+      .prepare(
+        `SELECT proposal_json, offset FROM receivable_proposals
+         WHERE archived = 0
+         ORDER BY CAST(offset AS INTEGER) DESC`
+      )
+      .all() as Array<{ proposal_json: string; offset: string }>;
     return rows.map((r) => JSON.parse(r.proposal_json) as ReceivableProposalSummary);
   }
 
@@ -462,7 +480,11 @@ export class ProjectionStore {
 
   getSyndicationOfferings(): SyndicationOfferingSummary[] {
     const rows = this.db
-      .prepare(`SELECT offering_json FROM syndication_offerings WHERE archived = 0`)
+      .prepare(
+        `SELECT offering_json FROM syndication_offerings
+         WHERE archived = 0
+         ORDER BY CAST(offset AS INTEGER) DESC`
+      )
       .all() as Array<{ offering_json: string }>;
     return rows.map((r) => JSON.parse(r.offering_json) as SyndicationOfferingSummary);
   }

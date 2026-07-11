@@ -1,6 +1,6 @@
 import { useState } from "react";
-import { Send } from "lucide-react";
 import { Alert } from "./ui/Alert";
+import { LoadingSpinner } from "./ui/LoadingSpinner";
 import { Checkbox, Field, FieldDescription, FieldLabel } from "./ui/Field";
 import { Input } from "./ui/Input";
 import { DetailList, DetailRow } from "./ui/DetailList";
@@ -172,7 +172,7 @@ export function IssueInvoiceStepForm({
       />
       {step === STEPS.length - 1 && proposing ? (
         <p className="flex items-center justify-center gap-1.5 text-center text-xs text-muted-foreground">
-          <Send className="size-3.5" />
+          <LoadingSpinner className="size-3.5" />
           Submitting proposal on-ledger…
         </p>
       ) : null}

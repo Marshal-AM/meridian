@@ -8,10 +8,14 @@ import {
   type SupplierReceivable,
 } from "../api";
 import { usePageTab } from "../hooks/usePageTab";
+import { useFollowUpRefresh } from "../hooks/useFollowUpRefresh";
+import { usePageFeedback } from "../hooks/usePageFeedback";
 import { useActivityLog } from "../hooks/useActivityLog";
-import { Alert, EmptyState, GuidancePanel, PageHeader } from "../components/ui/Alert";
+import { EmptyState, GuidancePanel, PageHeader } from "../components/ui/Alert";
 import { Badge } from "../components/ui/Badge";
 import { Button } from "../components/ui/Button";
+import { LoadingSpinner } from "../components/ui/LoadingSpinner";
+import { PageFeedback } from "../components/ui/PageFeedback";
 import { Card, Surface } from "../components/ui/Surface";
 import { CustomSelect } from "../components/ui/CustomSelect";
 import { DataTable } from "../components/ui/DataTable";
@@ -32,15 +36,17 @@ export function SupplierFinancingPage() {
   const [rounds, setRounds] = useState<FinancingRequestSummary[]>([]);
   const [bidMap, setBidMap] = useState<Record<string, BidComparisonRow[]>>({});
   const [parties, setParties] = useState<{ financierA: string; financierB: string } | null>(null);
-  const [error, setError] = useState("");
+  const { success, setSuccess, error, setError } = usePageFeedback();
   const [selectedReceivable, setSelectedReceivable] = useState("");
   const [deadline, setDeadline] = useState(defaultDeadline);
   const [pricingMin, setPricingMin] = useState("0.01");
   const [pricingMax, setPricingMax] = useState("0.15");
   const [inviteA, setInviteA] = useState(true);
   const [inviteB, setInviteB] = useState(true);
-  const [awardMsg, setAwardMsg] = useState("");
   const [postingId, setPostingId] = useState<string | null>(null);
+  const [openingRound, setOpeningRound] = useState(false);
+  const [awardingKey, setAwardingKey] = useState<string | null>(null);
+  const [roundActionKey, setRoundActionKey] = useState<string | null>(null);
   const { entries: logEntries, info, warn, error: logError, clear: clearLog, logLedger } =
     useActivityLog("supplier-financing");
 
@@ -77,6 +83,8 @@ export function SupplierFinancingPage() {
     }
   }, [logError]);
 
+  const followUpRefresh = useFollowUpRefresh(refresh);
+
   const onLedgerNotify = useCallback(() => {
     info("Ledger notification received — refreshing financing rounds");
   }, [info]);
@@ -91,12 +99,13 @@ export function SupplierFinancingPage() {
 
   async function handlePostForBid(contractId: string, receivableId: string) {
     setPostingId(contractId);
+    setError("");
     info("Posting receivable for financing", { receivableId, contractId });
     try {
       const result = await api.postReceivableForBid(contractId);
       logLedger("info", "Receivable posted for bid", result, { receivableId });
-      await refresh();
-      setError("");
+      setSuccess(`${receivableId} posted for bid`);
+      await followUpRefresh();
     } catch (err) {
       const message = String(err);
       setError(message);
@@ -116,6 +125,8 @@ export function SupplierFinancingPage() {
       setError("Select at least one financier");
       return;
     }
+    setOpeningRound(true);
+    setError("");
     info("Opening financing round", {
       receivableCid: selectedReceivable,
       financiers: financiers.length,
@@ -134,11 +145,14 @@ export function SupplierFinancingPage() {
       logLedger("info", "Financing round opened on-ledger", result, {
         receivableCid: selectedReceivable,
       });
-      await refresh();
+      setSuccess("Financing round opened — syncing bids…");
+      await followUpRefresh();
     } catch (err) {
       const message = String(err);
       setError(message);
       logError("Open financing round failed", { error: message });
+    } finally {
+      setOpeningRound(false);
     }
   }
 
@@ -148,61 +162,80 @@ export function SupplierFinancingPage() {
     advanceAmount: string,
     financierPartyId: string
   ) {
+    const awardKey = `${requestId}:${bidContractId}`;
+    setAwardingKey(awardKey);
+    setError("");
+    info("Awarding financing bid", { requestId, bidContractId, advanceAmount });
     try {
-      setAwardMsg("");
-      info("Awarding financing bid", { requestId, bidContractId, advanceAmount });
       const result = await api.awardFinancingBid(requestId, bidContractId, advanceAmount, financierPartyId);
       logLedger("info", "Bid awarded with atomic DvP settlement", result, {
         requestId,
         advanceAmount,
       });
-      setAwardMsg(
+      setSuccess(
         `Award confirmed with atomic DvP — MUSD advance (${advanceAmount}) settled to supplier.`
       );
-      await refresh();
+      await followUpRefresh();
     } catch (err) {
       const message = String(err);
       setError(message);
       logError("Award failed", { requestId, error: message });
+    } finally {
+      setAwardingKey(null);
     }
   }
 
   async function handlePause(requestId: string) {
+    setRoundActionKey(`pause:${requestId}`);
+    setError("");
     info("Pausing financing round", { requestId });
     try {
       const result = await api.pauseFinancingRound(requestId);
       logLedger("warn", "Financing round paused", result, { requestId });
-      await refresh();
+      setSuccess("Financing round paused");
+      await followUpRefresh();
     } catch (err) {
       const message = String(err);
       setError(message);
       logError("Pause round failed", { requestId, error: message });
+    } finally {
+      setRoundActionKey(null);
     }
   }
 
   async function handleStaticFallback(requestId: string) {
+    setRoundActionKey(`static:${requestId}`);
+    setError("");
     info("Switching round to static reference fallback", { requestId });
     try {
       const result = await api.staticFallbackFinancingRound(requestId);
       logLedger("info", "Round moved to static reference fallback", result, { requestId });
-      await refresh();
+      setSuccess("Round switched to static reference fallback");
+      await followUpRefresh();
     } catch (err) {
       const message = String(err);
       setError(message);
       logError("Static fallback failed", { requestId, error: message });
+    } finally {
+      setRoundActionKey(null);
     }
   }
 
   async function handleExpire(requestId: string) {
+    setRoundActionKey(`expire:${requestId}`);
+    setError("");
     info("Expiring financing round", { requestId });
     try {
       const result = await api.expireFinancingRound(requestId);
       logLedger("warn", "Financing round expired", result, { requestId });
-      await refresh();
+      setSuccess("Financing round expired");
+      await followUpRefresh();
     } catch (err) {
       const message = String(err);
       setError(message);
       logError("Expire round failed", { requestId, error: message });
+    } finally {
+      setRoundActionKey(null);
     }
   }
 
@@ -213,8 +246,7 @@ export function SupplierFinancingPage() {
         description="Configure sealed-bid rounds, compare oracle-anchored bids, and award atomically."
       />
 
-      {error && <Alert variant="destructive">{error}</Alert>}
-      {awardMsg && <Alert variant="success">{awardMsg}</Alert>}
+      <PageFeedback success={success} error={error} />
 
       <PageTabBar
         tabs={[
@@ -251,9 +283,13 @@ export function SupplierFinancingPage() {
                   <Button
                     type="button"
                     size="sm"
+                    className="gap-1.5"
                     onClick={() => handlePostForBid(r.contractId, r.receivableId)}
                     disabled={postingId === r.contractId}
                   >
+                    {postingId === r.contractId ? (
+                      <LoadingSpinner className="size-3.5" />
+                    ) : null}
                     {postingId === r.contractId ? "Posting…" : "Post for bid"}
                   </Button>
                 </div>
@@ -352,9 +388,13 @@ export function SupplierFinancingPage() {
                   Invite Financier B
                 </label>
               </div>
-              <Button type="submit">
-                <Clock className="size-4" />
-                Open Round
+              <Button type="submit" disabled={openingRound} className="gap-2">
+                {openingRound ? (
+                  <LoadingSpinner className="size-4" />
+                ) : (
+                  <Clock className="size-4" />
+                )}
+                {openingRound ? "Opening round…" : "Open Round"}
               </Button>
             </FieldGroup>
           </form>
@@ -400,19 +440,33 @@ export function SupplierFinancingPage() {
                           type="button"
                           variant="secondary"
                           size="sm"
+                          className="gap-1.5"
+                          disabled={roundActionKey === `pause:${round.contractId}`}
                           onClick={() => handlePause(round.contractId)}
                         >
-                          <Pause className="size-3.5" />
-                          Pause Round
+                          {roundActionKey === `pause:${round.contractId}` ? (
+                            <LoadingSpinner className="size-3.5" />
+                          ) : (
+                            <Pause className="size-3.5" />
+                          )}
+                          {roundActionKey === `pause:${round.contractId}` ? "Pausing…" : "Pause Round"}
                         </Button>
                         <Button
                           type="button"
                           variant="secondary"
                           size="sm"
+                          className="gap-1.5"
+                          disabled={roundActionKey === `static:${round.contractId}`}
                           onClick={() => handleStaticFallback(round.contractId)}
                         >
-                          <RefreshCw className="size-3.5" />
-                          Enter Static Reference Fallback
+                          {roundActionKey === `static:${round.contractId}` ? (
+                            <LoadingSpinner className="size-3.5" />
+                          ) : (
+                            <RefreshCw className="size-3.5" />
+                          )}
+                          {roundActionKey === `static:${round.contractId}`
+                            ? "Switching…"
+                            : "Enter Static Reference Fallback"}
                         </Button>
                       </>
                     )}
@@ -420,10 +474,18 @@ export function SupplierFinancingPage() {
                       type="button"
                       variant="outline"
                       size="sm"
+                      className="gap-1.5"
+                      disabled={roundActionKey === `expire:${round.contractId}`}
                       onClick={() => handleExpire(round.contractId)}
                     >
-                      <Timer className="size-3.5" />
-                      Expire Round (post-deadline)
+                      {roundActionKey === `expire:${round.contractId}` ? (
+                        <LoadingSpinner className="size-3.5" />
+                      ) : (
+                        <Timer className="size-3.5" />
+                      )}
+                      {roundActionKey === `expire:${round.contractId}`
+                        ? "Expiring…"
+                        : "Expire Round (post-deadline)"}
                     </Button>
                   </div>
                 )}
@@ -488,6 +550,10 @@ export function SupplierFinancingPage() {
                               <Button
                                 type="button"
                                 size="sm"
+                                className="gap-1.5"
+                                disabled={
+                                  awardingKey === `${round.contractId}:${bid.bidContractId}`
+                                }
                                 onClick={() =>
                                   handleAward(
                                     round.contractId,
@@ -497,8 +563,14 @@ export function SupplierFinancingPage() {
                                   )
                                 }
                               >
-                                <Award className="size-3.5" />
-                                Award (DvP)
+                                {awardingKey === `${round.contractId}:${bid.bidContractId}` ? (
+                                  <LoadingSpinner className="size-3.5" />
+                                ) : (
+                                  <Award className="size-3.5" />
+                                )}
+                                {awardingKey === `${round.contractId}:${bid.bidContractId}`
+                                  ? "Awarding…"
+                                  : "Award (DvP)"}
                               </Button>
                             ) : null,
                         },

@@ -14,7 +14,7 @@ Privacy-native invoice financing and syndication on **Canton Network**. Supplier
 |----------|------|
 | Demo video | `[INSERT: Demo video URL]` |
 | Live app | `[INSERT: Live app URL]` |
-| Pitch deck | `[INSERT: Pitch deck URL]` |
+| Pitch deck | [View Here](https://meridian-pitch.pages.dev) |
 | Sample Canton transaction | `[INSERT: Sample Canton tx URL]` |
 | Product specification | [docs/MERIDIAN_PRD_AND_IDEA_DOCUMENT.md](docs/MERIDIAN_PRD_AND_IDEA_DOCUMENT.md) |
 | Engineering phase plan | [docs/phaseDocs.md](docs/phaseDocs.md) |
