@@ -2,7 +2,7 @@ import Database from "better-sqlite3";
 import { mkdirSync, rmSync, existsSync } from "node:fs";
 import { dirname } from "node:path";
 import type { RawLedgerEvent, IndexerCheckpoint } from "@meridian/shared-types";
-import { JsonLedgerClient, LedgerClientError, hashEvents } from "@meridian/ledger-client";
+import { JsonLedgerClient, hashEvents } from "@meridian/ledger-client";
 import { ProjectionStore } from "./projection-store.js";
 import {
   extractArchivedContractIds,
@@ -45,6 +45,15 @@ import {
   projectSyndicationBid,
   projectSyndicationOffering,
 } from "./syndication-projector.js";
+import {
+  fetchActiveContractsForIndexer,
+  type IndexerRole,
+} from "./acs-bootstrap.js";
+import { roleHasEmptyProjections } from "./indexer-health.js";
+
+const GENESIS_CATCHUP_BATCHES = Number(
+  process.env.MERIDIAN_INDEXER_GENESIS_CATCHUP_BATCHES ?? "100"
+);
 
 /** Per-org isolated append-only event store — no cross-org shared DB. */
 export class IndexerStore {
@@ -139,12 +148,13 @@ export class IndexerStore {
 export class ReplayIndexer {
   private store: IndexerStore;
   private client: JsonLedgerClient;
+  private rebuildRecoveryAttempted = false;
 
   constructor(
     private config: {
       orgId: string;
       actingParty: string;
-      role: "Supplier" | "Buyer" | "Financier" | "Regulator" | "PlatformOperator";
+      role: IndexerRole;
       jsonApiUrl: string;
       dataDir: string;
       rebuild: boolean;
@@ -161,57 +171,126 @@ export class ReplayIndexer {
   }
 
   /** DevNet JSON API caps ACS responses at 200 contracts per party. */
-  private async safeGetActiveContracts(): Promise<
-    Awaited<ReturnType<JsonLedgerClient["getActiveContracts"]>>
-  > {
-    try {
-      return await this.client.getActiveContracts(this.config.actingParty);
-    } catch (err) {
-      if (err instanceof LedgerClientError && err.code === "GET_ACS_FAILED") {
-        console.warn(
-          `ACS fetch skipped for ${this.config.orgId}: party exceeds ledger API list limit`
-        );
-        return [];
-      }
-      throw err;
+  private async bootstrapActiveContracts(): Promise<{
+    count: number;
+    fullAcsFailed: boolean;
+    mode: string;
+  }> {
+    const result = await fetchActiveContractsForIndexer(
+      this.client,
+      this.config.actingParty,
+      this.config.orgId,
+      this.config.role
+    );
+
+    for (const c of result.contracts) {
+      this.store.appendEvent({
+        offset: "0",
+        updateId: `acs-${c.contractId}`,
+        recordTime: new Date().toISOString(),
+        payload: { type: "ACS_BOOTSTRAP", contract: c },
+      });
+      this.projectContractCreate(c.templateId, c.contractId, c.payload as Record<string, unknown>, "0");
     }
+
+    if (result.fullAcsFailed) {
+      console.warn(
+        `[${this.config.orgId}] ACS bootstrap mode=${result.mode} contracts=${result.contracts.length} — will replay ledger history`
+      );
+    }
+
+    return {
+      count: result.contracts.length,
+      fullAcsFailed: result.fullAcsFailed,
+      mode: result.mode,
+    };
+  }
+
+  private hasLedgerTransactionEvents(): boolean {
+    return this.store.getAllEvents().some((e) => {
+      const payload = e.payload;
+      if (payload == null || typeof payload !== "object") return true;
+      return (payload as Record<string, unknown>).type !== "ACS_BOOTSTRAP";
+    });
+  }
+
+  /**
+   * First-run poison: checkpoint saved at ledger-end with zero ledger transactions
+   * (happens when full ACS fails and update stream was not replayed from genesis).
+   */
+  private isPoisonedCheckpoint(): boolean {
+    const cp = this.store.getCheckpoint();
+    if (!cp || cp.eventCount > 0) return false;
+    if (this.hasLedgerTransactionEvents()) return false;
+    return roleHasEmptyProjections(
+      this.store.projections,
+      this.config.role,
+      this.config.actingParty
+    );
+  }
+
+  private async ingestUpdates(cursor: string | undefined, maxBatches: number): Promise<string> {
+    let endOffset = cursor ?? "0";
+
+    for (let batch = 0; batch < maxBatches; batch++) {
+      const { updates, endOffset: batchEnd } = await this.client.getUpdates({
+        party: this.config.actingParty,
+        beginExclusive: cursor,
+      });
+      endOffset = batchEnd;
+
+      for (const u of updates) {
+        this.store.appendEvent({
+          offset: u.offset,
+          updateId: u.updateId,
+          recordTime: u.recordTime,
+          payload: u.events,
+        });
+        this.processTransactionEvents(u.events, u.offset, u.recordTime);
+      }
+
+      if (updates.length === 0 || batchEnd === cursor) {
+        break;
+      }
+      cursor = batchEnd;
+    }
+
+    return endOffset;
   }
 
   async runOnce(): Promise<IndexerCheckpoint> {
-    const existing = this.store.getCheckpoint();
-    const beginExclusive =
-      existing?.lastOffset && existing.lastOffset !== ""
-        ? existing.lastOffset
-        : undefined;
-
-    // Bootstrap ACS on first run
-    if (!existing) {
-      const contracts = await this.safeGetActiveContracts();
-      for (const c of contracts) {
-        this.store.appendEvent({
-          offset: "0",
-          updateId: `acs-${c.contractId}`,
-          recordTime: new Date().toISOString(),
-          payload: { type: "ACS_BOOTSTRAP", contract: c },
-        });
-        this.projectContractCreate(c.templateId, c.contractId, c.payload as Record<string, unknown>, "0");
+    if (this.isPoisonedCheckpoint()) {
+      if (this.rebuildRecoveryAttempted) {
+        console.warn(
+          `[${this.config.orgId}] projections still empty after rebuild recovery — check ledger credentials and party manifest`
+        );
+      } else {
+        this.rebuildRecoveryAttempted = true;
+        console.warn(
+          `[${this.config.orgId}] poisoned checkpoint (empty index, no ledger history) — rebuilding`
+        );
+        return this.rebuild();
       }
     }
 
-    const { updates, endOffset } = await this.client.getUpdates({
-      party: this.config.actingParty,
-      beginExclusive,
-    });
+    const existing = this.store.getCheckpoint();
+    let fullAcsFailed = false;
 
-    for (const u of updates) {
-      this.store.appendEvent({
-        offset: u.offset,
-        updateId: u.updateId,
-        recordTime: u.recordTime,
-        payload: u.events,
-      });
-      this.processTransactionEvents(u.events, u.offset, u.recordTime);
+    if (!existing) {
+      const bootstrap = await this.bootstrapActiveContracts();
+      fullAcsFailed = bootstrap.fullAcsFailed;
     }
+
+    const replayFromGenesis = !existing && fullAcsFailed;
+    const updateCursor: string | undefined =
+      existing?.lastOffset && existing.lastOffset !== ""
+        ? existing.lastOffset
+        : replayFromGenesis
+          ? "0"
+          : undefined;
+
+    const maxBatches = replayFromGenesis ? GENESIS_CATCHUP_BATCHES : 1;
+    const endOffset = await this.ingestUpdates(updateCursor, maxBatches);
 
     await this.reconcileActiveContracts();
 
@@ -228,8 +307,13 @@ export class ReplayIndexer {
 
   /** Backfill projections from ACS when the update stream skips visible contracts. */
   private async reconcileActiveContracts(): Promise<void> {
-    const contracts = await this.safeGetActiveContracts();
-    for (const c of contracts) {
+    const result = await fetchActiveContractsForIndexer(
+      this.client,
+      this.config.actingParty,
+      this.config.orgId,
+      this.config.role
+    );
+    for (const c of result.contracts) {
       this.projectContractCreate(
         c.templateId,
         c.contractId,

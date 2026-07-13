@@ -1,5 +1,6 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import type { ProjectionStore } from "./projection-store.js";
+import { projectionCounts } from "./indexer-health.js";
 
 export interface IndexerHttpConfig {
   port: number;
@@ -65,7 +66,12 @@ async function handleRequest(
 
   try {
     if (url === "/health") {
-      json(res, 200, { ok: true, orgId: config.orgId });
+      json(res, 200, {
+        ok: true,
+        orgId: config.orgId,
+        role: config.role,
+        projections: projectionCounts(store, config.role, config.actingParty ?? ""),
+      });
       return;
     }
 

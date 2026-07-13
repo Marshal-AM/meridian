@@ -85,6 +85,7 @@ Copy into Railway → **Service → Variables**. Use **Raw Editor** for bulk pas
 | Variable | Default | Used by |
 |----------|---------|---------|
 | `MERIDIAN_INDEXER_POLL_MS` | `5000` | All indexers |
+| `MERIDIAN_INDEXER_GENESIS_CATCHUP_BATCHES` | `100` | Update-stream batches per tick when replaying history after ACS limit |
 | `MERIDIAN_SOFR_REFERENCE_RATE` | `0.0366` | Indexer bid comparison |
 | `MERIDIAN_ORACLE_MAX_AGE_MS` | `300000` | Indexer oracle freshness |
 | `ORACLE_RELAY_POLL_MS` | `60000` | Oracle relay |
@@ -178,13 +179,17 @@ Open http://localhost:8080
 3. Ops → Monitors shows oracle + settlement cards
 4. Ops → Regulator Admin loads (needs platform + regulator indexers)
 5. Optional: Financier → Agent tick works if `GROQ_API_KEY` set
+6. `curl https://<domain>/api/health/indexers` — supplier `projections.receivables` and financier-a `projections.mandates` should be >0 after catch-up (~2–5 min on busy DevNet)
 
 ## Troubleshooting
 
 | Symptom | Fix |
 |---------|-----|
+| Log: `ACS fetch skipped … exceeds ledger API list limit` | Expected on busy DevNet personas (supplier, financier-a). Indexer falls back to scoped template ACS + genesis replay. Wait for catch-up; check `/api/health/indexers`. |
+| Supplier/Financier tabs empty, Buyer has data | Poisoned indexer checkpoint from older deploy — redeploy with latest image; auto-rebuild runs on boot. Optionally wipe `/data/indexer/<orgId>/` on volume. |
 | Ops → Regulator Admin `fetch failed` | Platform/regulator indexers still catching up — wait ~60s or check logs |
-| Empty tables after deploy | Volume not mounted at `/data`; indexers rebuilding |
+| Empty tables after deploy | Volume not mounted at `/data`; indexers rebuilding from genesis (can take minutes) |
+| Indexer state resets every deploy | Volume must mount at `/data`; entrypoint symlinks `/app/data/indexer` → `/data/indexer` |
 | Agent tick disabled | Set `GROQ_API_KEY` |
 | 502 on first load | Health check may pass before all indexers are warm — retry |
 
